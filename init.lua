@@ -7,7 +7,8 @@ local redisasync = require 'redis-async'
 local QUEUE = "QUEUE:"
 local CHANNEL = "CHANNEL:"
 local UNIQUE = "UNIQUE:"
-local RUNNING = "RUNNINGJOBS"
+local RUNNING = "RESERVED:RUNNINGJOBS"
+local FAILED = "RESERVED:FAILED"
 
 RedisQueue = {meta = {}}
 
@@ -86,12 +87,26 @@ function RedisQueue:dequeueAndRun(queue)
             end)
 
             -- if not ok, the pcall crashed -- report the error...
-            if not ok then print(err) end
+            if not ok then 
+               print(err) 
+               self.redis.eval([[
+                  local workername = ARGV[1]
+                  local runningJobs = KEYS[1]
+                  local failedJobs = KEYS[2]
 
+                  local job = redis.call('hget', runningJobs, workername)
+                  redis.call('lpush', failedJobs, job)
+                  return redis.call('hdel', runningJobs, workername)
+               ]], 2, RUNNING, FAILED, self.workername, function(res)
+                  print("ERROR ON JOB " .. err )
+                  print("ATTEMPTED CLEANUP: REDIS RESPONSE " .. res)
+               end)
+            else
             -- job's done, take it off the running list, worker is no longer busy
-            self.redis.hdel(RUNNING, self.workername)
-            if res.hash then
-               self.redis.hdel(UNIQUE .. queue, res.hash)
+               self.redis.hdel(RUNNING, self.workername)
+               if res.hash then
+                  self.redis.hdel(UNIQUE .. queue, res.hash)
+               end
             end
 
             self.busy = false
