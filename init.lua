@@ -34,17 +34,18 @@ function RedisQueue:enqueue(queue, jobName, argtable, jobHash)
       local jobHash = ARGV[3]
 
       local newjob = 0
+
       if jobHash and jobHash ~= 0 then
-         newjob = redis.call('hsetnx', KEYS[3], jobHash)
+         newjob = redis.call('hsetnx', KEYS[3], jobHash, 1)
       else
          newjob = 1
       end
 
-      if newjob == 1 then
+      if newjob ~= 0 then
          redis.call('lpush', KEYS[1], job)
          redis.call('publish', KEYS[2], jobName)
       end
-   ]], 3, QUEUE .. queue, CHANNEL .. queue, UNIQUE .. queue, jobJson, jobName, jobHash, function(res) end)
+   ]], 3, QUEUE .. queue, CHANNEL .. queue, UNIQUE .. queue, jobJson, jobName, job.hash, function(res) end)
 end
 
 function RedisQueue:dequeueAndRun(queue)
