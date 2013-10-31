@@ -125,6 +125,9 @@ function RedisQueue:subcribeJob(queue, jobname, cb)
          -- new job on the queue
          self:dequeueAndRun(queue)
       end)
+      
+      -- check the queue immediately on subscription
+      self:dequeueAndRun(queue)
    end
 end
 
