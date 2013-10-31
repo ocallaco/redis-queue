@@ -9,7 +9,7 @@ local CHANNEL = "CHANNEL:"
 local UNIQUE = "UNIQUE:"
 local RUNNING = "RUNNINGJOBS"
 
-RedisQueue = {meta = {}, test = "TEST"}
+RedisQueue = {meta = {}}
 
 function RedisQueue.meta:__index(key)
    return RedisQueue[key]
@@ -65,35 +65,46 @@ function RedisQueue:dequeueAndRun(queue)
       end
       return job
    ]], 2, QUEUE..queue, RUNNING, self.workername, function(res)
-      if res then
-         res = json.decode(res)
+     
+      async.fiber(function()
+         if res then
 
-         -- run the function associated with this job
-         self.state = "Running:" .. res.name
-         self.jobs[res.name](res.args)
+            res = json.decode(res)
 
-         -- job's done, take it off the running list, worker is no longer busy
-         self.redis.hdel(RUNNING, self.workername)
-         if res.hash then
-            self.redis.hdel(UNIQUE .. queue, res.hash)
+            -- run the function associated with this job
+            self.state = "Running:" .. res.name
+
+            -- run it in a pcall
+            local ok, err = pcall(function()
+               self.jobs[res.name](res.args)
+            end)
+
+            -- if not ok, the pcall crashed -- report the error...
+            if not ok then print(err) end
+
+            -- job's done, take it off the running list, worker is no longer busy
+            self.redis.hdel(RUNNING, self.workername)
+            if res.hash then
+               self.redis.hdel(UNIQUE .. queue, res.hash)
+            end
+
+            self.busy = false
+            self.state = "Ready"
+
+         else
+            -- if we take a nil message off the queue, there's nothing left to process on that queue
+            self.state = "Ready"
+            self.busy = false
+            self.queuesWaiting[queue] = false
          end
 
-         self.busy = false
-         self.state = "Ready"
-
-      else
-         -- if we take a nil message off the queue, there's nothing left to process on that queue
-         self.state = "Ready"
-         self.busy = false
-         self.queuesWaiting[queue] = false
-      end
-            
-      -- job's completed, let's check for other jobs we might have missed
-      for q,waiting in pairs(self.queuesWaiting) do
-         if waiting then
-            self:dequeueAndRun(q)
+         -- job's completed, let's check for other jobs we might have missed
+         for q,waiting in pairs(self.queuesWaiting) do
+            if waiting then
+               self:dequeueAndRun(q)
+            end
          end
-      end
+      end)
    end)
 end
 
