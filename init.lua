@@ -17,7 +17,12 @@ end
 
 function RedisQueue:enqueue(queue, jobName, argtable, jobHash)
    local job = { name = jobName, args = argtable}
-   job.hash = jobHash or 0
+
+   if jobHash then
+      job.hash = jobName .. jobHash
+   else
+      job.hash = 0
+   end
 
    local jobJson = json.encode(job)
 
@@ -109,16 +114,15 @@ function RedisQueue:dequeueAndRun(queue)
 end
 
 function RedisQueue:subcribeJob(queue, jobname, cb)
-   if self.jobs[jobname] then
+   if self.jobs[jobname] or self.subscribedQueues[queue] then
       -- don't need to resubscribe, just change the callback
       self.jobs[jobname] = cb 
+      self.subscribedQueues[queue] = true
    else
       self.jobs[jobname] = cb 
       self.subscriber.subscribe(CHANNEL .. queue, function(message)
          -- new job on the queue
          self:dequeueAndRun(queue)
-
-
       end)
    end
 end
@@ -127,6 +131,7 @@ function RedisQueue:registerWorker(redisDetails, cb)
    
    -- set the queuesWaiting table so we don't miss messages
    self.queuesWaiting = {}
+   self.subscribedQueues = {}
 
    -- set worker state so we can tell where it's hung up if it's hanging
    self.workerstate = "idle"
