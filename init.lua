@@ -2,13 +2,70 @@ local json = require 'cjson'
 local async = require 'async'
 local redisasync = require 'redis-async'
 
--- important keys
-
+-- standard queues
 local QUEUE = "QUEUE:"
 local CHANNEL = "CHANNEL:"
 local UNIQUE = "UNIQUE:"
+
+-- load balance queues
+local LBQUEUE = "LBQUEUE:" -- ZSet job hash & priority
+local LBCHANNEL = "LBCHANNEL:" -- notify workers of new jobs on channel
+local LBJOBS = "LBJOBS:" -- Hash jobHash => jobJson
+local LBBUSY = "LBBUSY:" -- Hash jobHash => workername
+local LBWAITING = "LBWAITING" -- Set
+
+-- reserved 
 local RUNNING = "RESERVED:RUNNINGJOBS"
 local FAILED = "RESERVED:FAILED"
+
+local WORKERCHANNEL = "RESERVEDCHANNEL:WORKER"
+
+
+-- atomic functions
+
+local evals = {
+
+   enqueue = {
+
+   -- see if the job is already running.  if not, enqueue it and publish to the channel
+      script = [[
+      local job = ARGV[1]
+      local jobName = ARGV[2]
+      local jobHash = ARGV[3]
+
+      local newjob = 0
+
+      if jobHash and jobHash ~= 0 then
+         newjob = redis.call('hsetnx', KEYS[3], jobHash, 1)
+      else
+         newjob = 1
+      end
+
+      if newjob ~= 0 then
+         redis.call('lpush', KEYS[1], job)
+         redis.call('publish', KEYS[2], jobName)
+      end
+      ]],
+
+
+      args = function(queue, jobJson, jobName, jobHash)
+         return 3, QUEUE .. queue, CHANNEL .. queue, UNIQUE .. queue, jobJson, jobName, jobHash
+      end
+   },
+
+   dequeue = {
+      script = [[]],
+      args = function()
+      end
+   },
+
+   lbenqueue = {
+      script = [[]],
+      args = function(queue, jobJson, jobName, jobHash)
+         return  2, LBQUEUE .. queue, LBCHANNEL .. queue, jobJson, jobName, job.hash
+      end
+   }
+}
 
 RedisQueue = {meta = {}}
 
@@ -27,26 +84,47 @@ function RedisQueue:enqueue(queue, jobName, argtable, jobHash)
 
    local jobJson = json.encode(job)
 
-   -- see if the job is already running.  if not, enqueue it and publish to the channel
+
+   self.redis.eval(evals.enqueue.script, evals.enqueue.args(queue, jobJson, jobName, job.hash), function(res) end)
+end
+
+-- this enqueues a job on a priority queue.  this way more identical jobs raises the priority of that job
+function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash)
+   local job = { name = jobName, args = argtable}
+
+   local jobJson = json.encode(job)
+
+   if jobHash then
+      job.hash = jobName .. jobHash
+   else
+      error("a hash value is require for load balance queue")
+   end
 
    self.redis.eval([[
-      local job = ARGV[1]
+      local jobJson = ARGV[1]
       local jobName = ARGV[2]
       local jobHash = ARGV[3]
 
-      local newjob = 0
+      local queue = KEYS[1]
+      local chann = KEYS[2]
+      local jobmatch = KEYS[3]
+      local busy = KEYS[4]
+      local waiting = KEYS[5]
 
-      if jobHash and jobHash ~= 0 then
-         newjob = redis.call('hsetnx', KEYS[3], jobHash, 1)
-      else
-         newjob = 1
+      local jobExists = redis.call('hsetnx', jobmatch, jobHash, jobJson)
+
+      if jobExists =~ 0 then
+         local isbusy = redis.call('hget', busy, jobHash) 
+         if isbusy == 1 then
+            redis.call('sadd', waiting, jobJson)
+            redis.call('publish', chann, jobName)
+            return
+         end
       end
 
-      if newjob ~= 0 then
-         redis.call('lpush', KEYS[1], job)
-         redis.call('publish', KEYS[2], jobName)
-      end
-   ]], 3, QUEUE .. queue, CHANNEL .. queue, UNIQUE .. queue, jobJson, jobName, job.hash, function(res) end)
+      redis.call('zincrby', queue, 1, jobHash)
+      redis.call('publish', chann, jobName)
+   ]], 2, LBQUEUE .. queue, LBCHANNEL .. queue, jobJson, jobName, job.hash, function(res) end)
 end
 
 function RedisQueue:dequeueAndRun(queue)
@@ -127,6 +205,10 @@ function RedisQueue:dequeueAndRun(queue)
          end
       end)
    end)
+end
+
+function RedisQueue:lbdequeueAndRun(queue)
+
 end
 
 function RedisQueue:subcribeJob(queue, jobname, cb)
