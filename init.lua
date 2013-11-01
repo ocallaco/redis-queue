@@ -39,7 +39,7 @@ local evals = {
 
       local newjob = 0
 
-      if jobHash and jobHash ~= 0 then
+      if jobHash and jobHash ~= "0" then
          newjob = redis.call('hsetnx', KEYS[3], jobHash, 1)
       else
          newjob = 1
@@ -154,7 +154,7 @@ local evals = {
       local jobHash = ARGV[2]
 
       redis.call('hdel', runningJobs, workername)
-      if jobHash ~= 0 then
+      if jobHash ~= "0" then
          redis.call('hdel', uniqueness, jobHash)
       end
       ]]
@@ -172,7 +172,7 @@ end
 function RedisQueue:enqueue(queue, jobName, argtable, jobHash)
    local job = { name = jobName, args = argtable}
 
-   if jobHash then
+   if jobHash and jobHash ~= 0 then
       job.hash = jobName .. jobHash
    else
       job.hash = 0
