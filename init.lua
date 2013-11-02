@@ -78,16 +78,15 @@ local evals = {
    failure = function(queue, workername, cb)
       local script = [[
       local workername = ARGV[1]
-      local uniqueness = KEYS[1]
-      local runningJobs = KEYS[2]
-      local failedJobs = KEYS[3]
+      local runningJobs = KEYS[1]
+      local failedJobs = KEYS[2]
 
       local job = redis.call('hget', runningJobs, workername)
       redis.call('lpush', failedJobs, job)
       return redis.call('hdel', runningJobs, workername)
       ]]
 
-      return script, 3, UNIQUE .. queue, RUNNING, FAILED, workername, cb
+      return script, 2, RUNNING, FAILED, workername, cb
    end,
 
    -- after successful completion, remove job from running and uniqueness hash (if necessary)
