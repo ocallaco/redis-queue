@@ -75,18 +75,19 @@ local evals = {
    end,
 
    -- if crash, cleanup by moving job from runnning list to failed list
-   failure = function(workername, cb)
+   failure = function(queue, workername, cb)
       local script = [[
       local workername = ARGV[1]
-      local runningJobs = KEYS[1]
-      local failedJobs = KEYS[2]
+      local uniqueness = KEYS[1]
+      local runningJobs = KEYS[2]
+      local failedJobs = KEYS[3]
 
       local job = redis.call('hget', runningJobs, workername)
       redis.call('lpush', failedJobs, job)
       return redis.call('hdel', runningJobs, workername)
       ]]
 
-      return script, 2, RUNNING, FAILED, workername, cb
+      return script, 3, UNIQUE .. queue, RUNNING, FAILED, workername, cb
    end,
 
    -- after successful completion, remove job from running and uniqueness hash (if necessary)
@@ -204,6 +205,22 @@ local evals = {
 
       return script, 5, LBQUEUE .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, RUNNING, workername, cb
    end,
+    -- this needs to be built out better 
+   lbfailure = function(queue, workername, cb)
+      local script = [[
+      local workername = ARGV[1]
+      local runningJobs = KEYS[1]
+      local failedJobs = KEYS[2]
+
+      local job = redis.call('hget', runningJobs, workername)
+      
+      redis.call('lpush', failedJobs, job)
+
+      return redis.call('hdel', runningJobs, workername)
+      ]]
+
+      return script, 2, RUNNING, FAILED, workername, cb
+   end,
          
    lbcleanup = function(queue, workername, jobHash, cb)
 
@@ -313,7 +330,7 @@ function RedisQueue:dequeueAndRun(queue, queueType)
       cleanupFunct = evals.cleanup
    elseif queueType == TYPELBQUEUE then
       dequeueFunct = evals.lbdequeue
-      failureFunct = evals.failure
+      failureFunct = evals.lbfailure
       cleanupFunct = evals.lbcleanup
    end
 
@@ -339,14 +356,14 @@ function RedisQueue:dequeueAndRun(queue, queueType)
             -- if not ok, the pcall crashed -- report the error...
             if not ok then 
                print(err) 
-               self.redis.eval(failureFunct(self.workername, function(res)
+               self.redis.eval(failureFunct(queue, self.workername, function(res)
                   print("ERROR ON JOB " .. err )
                   print("ATTEMPTED CLEANUP: REDIS RESPONSE " .. res)
                end))
-            else
-               -- call the custom cleanup code for this type of queue
-               self.redis.eval(cleanupFunct(queue, self.workername, res.hash, function() end))
             end
+            
+            -- call the custom cleanup code for this type of queue
+            self.redis.eval(cleanupFunct(queue, self.workername, res.hash, function() end))
 
             self.busy = false
             self.state = "Ready"
