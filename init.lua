@@ -30,6 +30,8 @@ local TYPELBQUEUE = "lbqueue"
 
 local evals = {
 
+   -- enqueue on a standard queue -- check for hash uniqueness so we don't put the same job on twice
+   -- note:  hsetnx() ALWAYS returns integer 1 or 0
    enqueue = function(queue, jobJson, jobName, jobHash, cb)
 
       local script = [[
@@ -37,23 +39,28 @@ local evals = {
       local jobName = ARGV[2]
       local jobHash = ARGV[3]
 
+      local queue = KEYS[1]
+      local chann = KEYS[2]
+      local uniqueness = KEYS[3]
+
       local newjob = 0
 
       if jobHash and jobHash ~= "0" then
-         newjob = redis.call('hsetnx', KEYS[3], jobHash, 1)
+         newjob = redis.call('hsetnx', uniqueness, jobHash, 1)
       else
          newjob = 1
       end
 
       if newjob ~= 0 then
-         redis.call('lpush', KEYS[1], job)
-         redis.call('publish', KEYS[2], jobName)
+         redis.call('lpush', queue, job)
+         redis.call('publish', chann, jobName)
       end
       ]] 
       return script, 3, QUEUE .. queue, CHANNEL .. queue, UNIQUE .. queue, jobJson, jobName, jobHash, cb
    end,
 
 
+   -- standard dequeue.  move from queue to running list
    dequeue = function(queue, workername, cb)
 
       local script = [[
@@ -67,7 +74,7 @@ local evals = {
       return script, 2, QUEUE..queue, RUNNING, workername, cb
    end,
 
-
+   -- if crash, cleanup by moving job from runnning list to failed list
    failure = function(workername, cb)
       local script = [[
       local workername = ARGV[1]
@@ -82,68 +89,8 @@ local evals = {
       return script, 2, RUNNING, FAILED, workername, cb
    end,
 
-            
+   -- after successful completion, remove job from running and uniqueness hash (if necessary)
    cleanup = function(queue, workername, jobHash, cb)
-
-      -- job's done, take it off the running list, worker is no longer busy
-
-      local script = [[
-      local runningJobs = KEYS[1]
-      local uniqueness = KEYS[2]
-      local workername = ARGV[1]
-      local jobHash = ARGV[2]
-
-      redis.call('hdel', runningJobs, workername)
-      if jobHash ~= 0 then
-         redis.call('hdel', uniqueness, jobHash)
-      end
-      ]]
-
-      return script, 2, RUNNING, UNIQUE .. queue, workername, jobHash, cb
-   end,
-
-   
-   lbenqueue = function(queue, jobJson, jobName, jobHash, cb)
-      local script = [[
-      local jobJson = ARGV[1]
-      local jobName = ARGV[2]
-      local jobHash = ARGV[3]
-
-      local queue = KEYS[1]
-      local chann = KEYS[2]
-      local jobmatch = KEYS[3]
-      local busy = KEYS[4]
-      local waiting = KEYS[5]
-
-      local jobExists = redis.call('hsetnx', jobmatch, jobHash, jobJson)
-
-      if jobExists =~ 0 then
-         local isbusy = redis.call('hget', busy, jobHash) 
-         if isbusy == 1 then
-            redis.call('sadd', waiting, jobJson)
-            redis.call('publish', chann, jobName)
-            return
-         end
-      end
-
-      redis.call('zincrby', queue, -1, jobHash)
-      redis.call('publish', chann, jobName)
-      ]] 
-      return  script, 5, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, jobJson, jobName, jobHash, cb
-
-   end,
-
-   -- check for waiting jobs.  add any to the queue if possible
-   -- take top job off queue and return it
-   lbdequeue = function(queue, workername, cb)
-      script = [[
-      ]]
-
-      return script, LBQUEUE .. queue,  cb
-
-   end,
-         
-   lbcleanup = function(queue, workername, jobHash, cb)
 
       -- job's done, take it off the running list, worker is no longer busy
 
@@ -161,6 +108,135 @@ local evals = {
 
       return script, 2, RUNNING, UNIQUE .. queue, workername, jobHash, cb
    end,
+
+   -- check if job exists.  if so, see if it's running.  if so, put on waiting list, otherwise, increment it
+   -- note: hsetnx() ALWAYS returns integer 1 or 0
+   lbenqueue = function(queue, jobJson, jobName, jobHash, cb)
+      local script = [[
+      local jobJson = ARGV[1]
+      local jobName = ARGV[2]
+      local jobHash = ARGV[3]
+
+      local queue = KEYS[1]
+      local chann = KEYS[2]
+      local jobmatch = KEYS[3]
+      local busy = KEYS[4]
+      local waiting = KEYS[5]
+
+      local jobExists = redis.call('hsetnx', jobmatch, jobHash, jobJson)
+
+      if jobExists == 0 then
+         local isbusy = redis.call('hget', busy, jobHash) 
+         if isbusy then
+            redis.call('sadd', waiting, jobJson)
+            redis.call('publish', chann, jobName)
+            return
+         end
+      end
+
+      redis.call('zincrby', queue, -1, jobHash)
+      redis.call('publish', chann, jobName)
+      ]] 
+      return  script, 5, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, jobJson, jobName, jobHash, cb
+
+   end,
+
+   -- check for waiting jobs.  see if they're on the busy list.  if not, increment them on the queue
+   -- note, could be more efficient by tallying up the times i see a hash and zincrby only once per hash
+   -- but this is already pretty elaborate.  don't want more moving parts to get me confused right now
+   -- take top job off queue and return it
+   lbdequeue = function(queue, workername, cb)
+      script = [[
+         local queue = KEYS[1]
+         local jobs = KEYS[2]
+         local busy = KEYS[3]
+         local waiting = KEYS[4]
+         local running = KEYS[5]
+
+         local workername = ARGV[1]
+
+         local waitingJobs = redis.call('smembers', waiting)
+
+         if #waitingJobs > 0 then
+            local waitingHashes = {}
+            for i,job in ipairs(waitingJobs) do
+               local shit, crap, jobHash = job:find("\"hash\":\"(.-)\",")
+               table.insert(waitingHashes, jobHash)
+            end
+
+            local busyList = {}
+            busyList = redis.call('hmget', busy, unpack(waitingHashes))
+
+            local readyJobHashes = {}
+            local readyJobs = {}
+
+            for i,jobHash in ipairs(waitingHashes) do
+               if not busyList[i] then
+                  table.insert(readyJobHashes, jobHash)
+                  table.insert(readyJobs, waitingJobs[i])
+               end
+            end
+
+            if #readyJobs > 0 then 
+               redis.call('srem', waiting, unpack(readyJobs))
+            end
+
+            for i,jobHash in ipairs(readyJobHashes) do
+               redis.call('zincrby', queue, -1, jobHash)
+            end
+         end
+  
+
+         local topJobHash = redis.call('zrange', queue, 0, 0)[1]
+         redis.call('zremrangebyrank', queue, 0, 0)
+
+         local topJob = nil
+
+         if topJobHash then
+            topJob = redis.call('hget', jobs, topJobHash)
+            redis.call('hset', running, workername, topJob)
+            redis.call('hset', busy, topJobHash, 1)
+         end
+
+         return topJob
+
+      ]]
+
+      return script, 5, LBQUEUE .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, RUNNING, workername, cb
+   end,
+         
+   lbcleanup = function(queue, workername, jobHash, cb)
+
+      -- job's done, take it off the running list, worker is no longer busy
+
+      local script = [[
+      local runningJobs = KEYS[1]
+      local busy = KEYS[2]
+      local waiting = KEYS[3]
+      local jobs = KEYS[4]
+
+      local workername = ARGV[1]
+      local jobHash = ARGV[2]
+
+      redis.call('hdel', runningJobs, workername)
+      redis.call('hdel', busy, jobHash)
+
+      local waitingJobs = redis.call('smembers', waiting)
+      
+      for i,job in ipairs(waitingJobs) do
+         local shit, crap, waitingJobHash = job:find("\"hash\":\"(.-)\",")
+         if waitingJobHash == jobHash then
+            return 1
+         end
+      end
+
+      redis.call('hdel', jobs, jobHash)
+      return 2
+
+      ]]
+
+      return script, 4, RUNNING, LBBUSY .. queue, LBWAITING .. queue, LBJOBS .. queue, workername, jobHash, cb
+   end,
 }
 
 RedisQueue = {meta = {}}
@@ -175,7 +251,7 @@ function RedisQueue:enqueue(queue, jobName, argtable, jobHash)
    if jobHash and jobHash ~= 0 then
       job.hash = jobName .. jobHash
    else
-      job.hash = 0
+      job.hash = "0"
    end
 
    jobHash = job.hash
@@ -186,11 +262,11 @@ function RedisQueue:enqueue(queue, jobName, argtable, jobHash)
 end
 
 -- this enqueues a job on a priority queue.  this way more identical jobs raises the priority of that job
-function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash)
-   local job = { name = jobName, args = argtable}
+function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash, cb)
+   -- instance allows multiple identical jobs to sit on the waiting set
+   local job = { name = jobName, args = argtable, instance = async.hrtime()}
 
-   local jobJson = json.encode(job)
-
+   -- job.hash must be a string for dequeue logic
    if jobHash then
       job.hash = jobName .. jobHash
    else
@@ -199,7 +275,10 @@ function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash)
       
    jobHash = job.hash
 
-   self.redis.eval(evals.lbenqueue(queue, jobJson, jobName, jobHash, function(res) return end))
+   cb = cb or function(res) return end
+
+   local jobJson = json.encode(job)
+   self.redis.eval(evals.lbenqueue(queue, jobJson, jobName, jobHash, cb))
 end
 
 function RedisQueue:dequeueAndRun(queue, queueType)
@@ -238,11 +317,16 @@ function RedisQueue:dequeueAndRun(queue, queueType)
       cleanupFunct = evals.lbcleanup
    end
 
-   self.redis.eval(evals.dequeue(queue, self.workername, function(res)
+   self.redis.eval(dequeueFunct(queue, self.workername, function(res)
       async.fiber(function()
-         if res then
+         if res  and res ~= "CONALL" then
+
+            if type(res) == "table" then
+               res = res[1]
+            end
 
             res = json.decode(res)
+
 
             -- run the function associated with this job
             self.state = "Running:" .. res.name
@@ -277,7 +361,7 @@ function RedisQueue:dequeueAndRun(queue, queueType)
          -- job's completed, let's check for other jobs we might have missed
          for q,waiting in pairs(self.queuesWaiting) do
             if waiting then
-               self:dequeueAndRun(q)
+               self:dequeueAndRun(q, queueType)
             end
          end
       end)
@@ -303,6 +387,25 @@ function RedisQueue:subcribeJob(queue, jobname, cb)
       -- check the queue immediately on subscription
       self:dequeueAndRun(queue)
    end
+end
+
+function RedisQueue:subscribeLBJob(queue, jobname, cb)
+
+   if self.jobs[jobname] or self.subscribedQueues[queue] then
+      -- don't need to resubscribe, just change the callback
+      self.jobs[jobname] = cb 
+      self.subscribedQueues[queue] = true
+   else
+      self.jobs[jobname] = cb 
+      self.subscriber.subscribe(LBCHANNEL .. queue, function(message)
+         -- new job on the queue
+         self:dequeueAndRun(queue, TYPELBQUEUE)
+      end)
+      
+      -- check the queue immediately on subscription
+      self:dequeueAndRun(queue)
+   end
+
 end
 
 function RedisQueue:registerWorker(redisDetails, cb)
