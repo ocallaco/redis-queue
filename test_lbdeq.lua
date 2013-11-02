@@ -34,7 +34,6 @@ fiber(function()
          end)
          async.setTimeout(15000, function()
 
-            print("cleaning up leftovers")
 --            client.del("LBQUEUE:TEST")
 --            client.del("LBWAITING:TEST")
 --            client.del("LBBUSY:TEST")
