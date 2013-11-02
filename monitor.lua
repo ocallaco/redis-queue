@@ -26,10 +26,30 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
          -- collect data:
          local resp = wait(client.keys, {'*'})
 
+         local queues = {}
+         local lbqueues = {}
+
+         -- identify keys
+         for i,key in ipairs(resp) do
+            local x,y,name = key:find("LBQUEUE:(.*)") 
+
+            if name then
+               table.insert(lbqueues, name)
+            else
+               local x,y,name = key:find("QUEUE:(.*)")
+               if name then
+                  table.insert(queues, name)
+               end
+            end
+         end
+
          -- format table:
-         local rows = {}
-         for i,key in ipairs(resp) do 
-            local val = wait(client.get, {key})
+         local qrows = {}
+         local lbqrows = {}
+
+
+         for i,key in ipairs(queues) do 
+            local val = wait(client.llen, {"QUEUE:" .. key})
             local row = [[
                <tr> 
                   <td> ${name} </td>
@@ -39,9 +59,46 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
                name = key,
                val = val
             }
-            table.insert(rows, row)
+            table.insert(qrows, row)
          end
-         rows = table.concat(rows)
+         qrows = table.concat(qrows)
+
+
+         for i,key in ipairs(lbqueues) do 
+            local val = wait(client.zcard, {"LBQUEUE:" .. key})
+            local row = [[
+               <tr> 
+                  <td> ${name} </td>
+                  <td> ${val} </td> 
+               </tr>
+            ]] % {
+               name = key,
+               val = val
+            }
+            table.insert(lbqrows, row)
+         end
+         lbqrows = table.concat(lbqrows)
+
+
+         local jobs = wait(client.hgetall, {"RESERVED:RUNNINGJOBS"})
+
+         local wrows = {}
+
+         for i = 1,#jobs,2 do
+            local row = [[
+            <tr> 
+            <td> ${name} </td>
+            <td> ${val} </td> 
+            </tr>
+            ]] % {
+               name = jobs[i],
+               val = jobs[i+1]
+            }
+            table.insert(wrows, row)
+         end
+
+         wrows = table.concat(wrows)
+
        
          -- full page:
          local page = [[
@@ -79,12 +136,24 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
                <body>
                   <h1>Redis Queue</h1>
                   <table>
-                     <tr> <th>Keys</th> <th>Vals</th> </tr>
-                     ${keyvals}
+                     <tr> <th>Standard Queues     </th> <th>Jobs Waiting</th> </tr>
+                     ${quevals}
                   </table>
+
+                  <table>
+                     <tr> <th>Load Balanced Queues</th> <th>Jobs Queued</th> </tr>
+                     ${lbquevals}
+                  </table>
+
+                          
+                  <table>
+                     <tr> <th>Busy Workers</th> <th>Current Job</th> </tr>
+                     ${workervals}
+                  </table>
+
                </body>
             </html>
-         ]] % {keyvals = rows}
+         ]] % {quevals = qrows, lbquevals = lbqrows, workervals = wrows}
 
          -- html response:
          res(page, {['Content-Type']='text/html'})
