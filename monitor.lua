@@ -54,10 +54,12 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
                <tr> 
                   <td> ${name} </td>
                   <td> ${val} </td> 
+                  <td><a href="${clearurl}">Clear Queue</a></td> 
                </tr>
             ]] % {
                name = key,
-               val = val
+               val = val,
+               clearurl = "/clear?queue="..key
             }
             table.insert(qrows, row)
          end
@@ -70,10 +72,12 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
                <tr> 
                   <td> ${name} </td>
                   <td> ${val} </td> 
+                  <td><a href="${clearurl}">Clear Queue</a></td> 
                </tr>
             ]] % {
                name = key,
-               val = val
+               val = val,
+               clearurl = "/clear?queue="..key.."&type=LB"
             }
             table.insert(lbqrows, row)
          end
@@ -157,6 +161,21 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
 
          -- html response:
          res(page, {['Content-Type']='text/html'})
+      elseif req.url.path:find("/clear")then
+         print(pretty.write(req.url))
+         local x,y,queue= req.url.query:find("queue=(%a+)")
+         local z,w,qtype= req.url.query:find("type=(%a+)")
+
+         if qtype == "LB" then
+            client.del("LBQUEUE:"..queue)
+            client.del("LBJOBS:"..queue)
+            client.del("LBBUSY:"..queue)
+            client.del("LBWAITING:"..queue)
+         else 
+            client.del("QUEUE:"..queue)
+            client.del("UNIQUE:"..queue)
+         end
+          res("OK "..queue.." cleared", {['Content-Type']='text/html'})
       end
    end)
 end)
