@@ -55,7 +55,7 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
                   <td> ${name} </td>
                   <td> ${queue} </td> 
                   <td> ${hashes} </td> 
-                  <td><a href="${clearurl}">Clear Queue</a></td> 
+                  <td><a href="${clearurl}" onclick="return confirm('Are you sure?')">Clear Queue</a></td> 
                </tr>
             ]] % {
                name = key,
@@ -78,7 +78,7 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
                   <td> ${jobs} </td> 
                   <td> ${busy} </td> 
                   <td> ${waiting} </td> 
-                  <td><a href="${clearurl}">Clear Queue</a></td> 
+                  <td><a href="${clearurl}" onclick="return confirm('Are you sure?')">Clear Queue</a></td> 
                </tr>
             ]] % {
                name = key,
