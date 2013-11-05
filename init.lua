@@ -15,11 +15,8 @@ local LBBUSY = "LBBUSY:" -- Hash jobHash => workername
 local LBWAITING = "LBWAITING:" -- Set
 
 -- reserved 
-local RUNNING = "RESERVED:RUNNINGJOBS"
-local FAILED = "RESERVED:FAILED"
-
-local WORKERCHANNEL = "RESERVEDCHANNEL:WORKER"
-
+local RUNNING = "RESERVED:RUNNINGJOBS" -- hash
+local FAILED = "RESERVED:FAILED" -- list
 
 -- queue Types
 
@@ -29,6 +26,59 @@ local TYPELBQUEUE = "lbqueue"
 -- atomic functions
 
 local evals = {
+
+   -- clean up any previous state variables left behind by a crashed worker
+   -- i'm assuming that if a worker crashed without cleaning up it's state, then it will be in the running jobs hash
+   newworker= function(cb)
+      local script = [[
+      local runningJobs = KEYS[1]
+      local failedJobs = KEYS[2]
+
+      local clientList = redis.call('client', 'list')
+      local liveWorkers = {}
+
+      local list_index = 1
+      while list_index do
+         local piss,crap,workerName = clientList:find("name=(.-) ", list_index)
+         if workerName then
+            liveWorkers[workerName] = true
+         end
+         list_index = crap
+      end
+
+      local deadWorkers = {}
+      local allWorkers = redis.call('hkeys', runningJobs)
+      for i,worker in ipairs(allWorkers) do
+         if not liveWorkers[worker] then
+            table.insert(deadWorkers, worker)
+         end
+      end
+
+      local jobsCleaned = 0
+
+      if #deadWorkers > 0 then
+         local deadJobs = redis.call('hmget', runningJobs, unpack(deadWorkers))
+         for i,job in ipairs(deadJobs) do
+            local ass,hole,queue = job:find('"queue":"(.-)"')
+            local dung,pee,jobHash =  job:find('"hash":"(.-)"')
+            local piss,crap,queuetype,queuename = queue:find("^(.-):(.*)$")
+
+            if queuetype == "LBQUEUE" and jobHash then
+               redis.call('hdel', "LBBUSY:"..queuename, jobHash)
+            elseif queuetype == "QUEUE" and jobHash then 
+               redis.call('hdel', "UNIQUE:"..queuename, jobHash)
+            end
+            redis.call('hdel', runningJobs, unpack(deadWorkers))
+            redis.call('lpush', failedJobs, unpack(deadJobs))
+         end
+
+         jobsCleaned = #deadJobs
+      end
+
+      return jobsCleaned
+      ]]
+      return script, 2, RUNNING, FAILED, cb
+   end,
 
    -- enqueue on a standard queue -- check for hash uniqueness so we don't put the same job on twice
    -- note:  hsetnx() ALWAYS returns integer 1 or 0
@@ -160,12 +210,15 @@ local evals = {
          if #waitingJobs > 0 then
             local waitingHashes = {}
             for i,job in ipairs(waitingJobs) do
-               local shit, crap, jobHash = job:find("\"hash\":\"(.-)\",")
+               local shit, crap, jobHash = job:find('"hash":"(.-)"')
                table.insert(waitingHashes, jobHash)
             end
 
             local busyList = {}
-            busyList = redis.call('hmget', busy, unpack(waitingHashes))
+
+            if #waitingHashes > 0 then
+               busyList = redis.call('hmget', busy, unpack(waitingHashes))
+            end
 
             local readyJobHashes = {}
             local readyJobs = {}
@@ -195,7 +248,7 @@ local evals = {
          if topJobHash then
             topJob = redis.call('hget', jobs, topJobHash)
             redis.call('hset', running, workername, topJob)
-            redis.call('hset', busy, topJobHash, 1)
+            local xfd = redis.call('hset', busy, topJobHash, 1)
          end
 
          return topJob
@@ -235,12 +288,13 @@ local evals = {
       local jobHash = ARGV[2]
 
       redis.call('hdel', runningJobs, workername)
-      redis.call('hdel', busy, jobHash)
+      
+      local xfd = redis.call('hdel', busy, jobHash)
 
       local waitingJobs = redis.call('smembers', waiting)
       
       for i,job in ipairs(waitingJobs) do
-         local shit, crap, waitingJobHash = job:find("\"hash\":\"(.-)\",")
+         local shit, crap, waitingJobHash = job:find('"hash":"(.-)"')
          if waitingJobHash == jobHash then
             return 1
          end
@@ -262,7 +316,7 @@ function RedisQueue.meta:__index(key)
 end
 
 function RedisQueue:enqueue(queue, jobName, argtable, jobHash)
-   local job = { name = jobName, args = argtable}
+   local job = {queue = QUEUE .. queue, name = jobName, args = argtable}
 
    if jobHash and jobHash ~= 0 then
       job.hash = jobName .. jobHash
@@ -280,7 +334,7 @@ end
 -- this enqueues a job on a priority queue.  this way more identical jobs raises the priority of that job
 function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash, cb)
    -- instance allows multiple identical jobs to sit on the waiting set
-   local job = { name = jobName, args = argtable, instance = async.hrtime()}
+   local job = { queue = LBQUEUE .. queue, name = jobName, args = argtable, instance = async.hrtime()}
 
    -- job.hash must be a string for dequeue logic
    if jobHash then
@@ -335,8 +389,9 @@ function RedisQueue:dequeueAndRun(queue, queueType)
 
    self.redis.eval(dequeueFunct(queue, self.workername, function(res)
       async.fiber(function()
-         if res  and res ~= "CONALL" then
+         if res then
 
+            --print(pretty.write(res))
             if type(res) == "table" then
                res = res[1]
             end
@@ -362,7 +417,9 @@ function RedisQueue:dequeueAndRun(queue, queueType)
             end
             
             -- call the custom cleanup code for this type of queue
-            self.redis.eval(cleanupFunct(queue, self.workername, res.hash, function() end))
+            self.redis.eval(cleanupFunct(queue, self.workername, res.hash, function(response)
+               print(response .. " " .. res.hash)
+            end))
 
             self.busy = false
             self.state = "Ready"
@@ -384,24 +441,18 @@ function RedisQueue:dequeueAndRun(queue, queueType)
    end))
 end
 
-function RedisQueue:lbdequeueAndRun(queue)
-
-end
-
 function RedisQueue:subcribeJob(queue, jobname, cb)
    if self.jobs[jobname] or self.subscribedQueues[queue] then
       -- don't need to resubscribe, just change the callback
       self.jobs[jobname] = cb 
-      self.subscribedQueues[queue] = true
+      self.subscribedQueues[queue] = TYPEQUEUE
    else
       self.jobs[jobname] = cb 
       self.subscriber.subscribe(CHANNEL .. queue, function(message)
          -- new job on the queue
          self:dequeueAndRun(queue)
       end)
-      
-      -- check the queue immediately on subscription
-      self:dequeueAndRun(queue)
+      self.subscribedQueues[queue] = TYPEQUEUE
    end
 end
 
@@ -410,20 +461,27 @@ function RedisQueue:subscribeLBJob(queue, jobname, cb)
    if self.jobs[jobname] or self.subscribedQueues[queue] then
       -- don't need to resubscribe, just change the callback
       self.jobs[jobname] = cb 
-      self.subscribedQueues[queue] = true
+      self.subscribedQueues[queue] = TYPELBQUEUE
    else
       self.jobs[jobname] = cb 
       self.subscriber.subscribe(LBCHANNEL .. queue, function(message)
          -- new job on the queue
          self:dequeueAndRun(queue, TYPELBQUEUE)
       end)
-      
-      -- check the queue immediately on subscription
-      self:dequeueAndRun(queue)
+      self.subscribedQueues[queue] = TYPELBQUEUE
    end
 
 end
 
+-- please call this at the end of subscribing
+function RedisQueue:doneSubscribing()
+   for queue,qtype in pairs(self.subscribedQueues) do
+      self:dequeueAndRun(queue, qtype)
+   end
+end
+
+-- register a new worker -- see if previous worker on this machine exited uncleanly
+-- if so: push last job to failed state.  clean out from queue locks.  
 function RedisQueue:registerWorker(redisDetails, cb)
    
    -- set the queuesWaiting table so we don't miss messages
@@ -436,20 +494,25 @@ function RedisQueue:registerWorker(redisDetails, cb)
    -- get ip and port for redis client, append hi-res time for unique name
 
    local name = self.redis.sockname.address .. ":" .. self.redis.sockname.port .. ":" .. async.hrtime()*10000
-   self.redis.client('SETNAME', name, function(res)
-      self.workername = name
-   end)
-   
-   -- we need a separate client for handling subscriptions
 
-   redisasync.connect(redisDetails, function(subclient)
-      self.subscriber = subclient
-      self.subscriber.client('SETNAME', "SUB:" .. name, function(res) end)
+   -- do cleanup in case dead workers are locking the queues
+   self.redis.eval(evals.newworker(function(res) 
+      local fixed = res
+      print("new worker fixed " .. pretty.write(fixed) .. " queues.")
+      self.redis.client('SETNAME', name, function(res)
+         self.workername = name
+         -- we need a separate client for handling subscriptions
 
-      if cb then
-         cb()
-      end
-   end)
+         redisasync.connect(redisDetails, function(subclient)
+            self.subscriber = subclient
+            self.subscriber.client('SETNAME', "SUB:" .. name, function(res) end)
+
+            if cb then
+               cb()
+            end
+         end)
+      end)
+   end))
 end
 
 function RedisQueue:close()

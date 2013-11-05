@@ -26,13 +26,15 @@ fiber(function()
             print("test start " .. i)
             worker.queue:subscribeLBJob("TEST", "testJob", function(args) 
 
-               print(pretty.write(args))
+               --print(pretty.write(args))
 
                jobsSeen[args.testnumber] = true
                table.insert(jobsSeenBy[i], args.testnumber)
             end)
          end)
          async.setTimeout(15000, function()
+
+            -- check to see that all fields hold proper values
 
 --            client.del("LBQUEUE:TEST")
 --            client.del("LBWAITING:TEST")

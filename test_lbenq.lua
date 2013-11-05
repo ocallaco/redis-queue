@@ -24,6 +24,11 @@ fiber(function()
       end
       
       async.setTimeout(7000, function()
+         
+         --client.del("LBQUEUE:TEST")
+         --client.del("LBWAITING:TEST")
+         --client.del("LBBUSY:TEST")
+         --client.del("LBJOBS:TEST")
          client.close()
       end)
 

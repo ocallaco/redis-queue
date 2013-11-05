@@ -17,7 +17,7 @@ fiber(function()
       print("test start")
 
       for i = 1,200 do
-         queue:enqueue("TEST", "testJob", {a = 1, b = "test", testnumber = i})
+         queue:enqueue("TEST", "testJob", {a = 1, b = "test", testnumber = i}, i)
       end
       
       async.setTimeout(3000, function()
