@@ -49,15 +49,16 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
 
 
          for i,key in ipairs(queues) do 
-            local val = wait(client.llen, {"QUEUE:" .. key})
+            local val = wait({client.llen}, {{"QUEUE:" .. key}})
+
             local row = [[
                <tr> 
                   <td> ${name} </td>
-                  <td> ${val} </td> 
+                  <td> ${val1} </td> 
                </tr>
             ]] % {
                name = key,
-               val = val
+               val = val,
             }
             table.insert(qrows, row)
          end
@@ -65,7 +66,7 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
 
 
          for i,key in ipairs(lbqueues) do 
-            local val = wait(client.zcard, {"LBQUEUE:" .. key})
+            local val = wait({client.zcard}, {{"LBQUEUE:" .. key}})
             local row = [[
                <tr> 
                   <td> ${name} </td>

@@ -497,8 +497,6 @@ function RedisQueue:registerWorker(redisDetails, cb)
 
    -- do cleanup in case dead workers are locking the queues
    self.redis.eval(evals.newworker(function(res) 
-      local fixed = res
-      print("new worker fixed " .. pretty.write(fixed) .. " queues.")
       self.redis.client('SETNAME', name, function(res)
          self.workername = name
          -- we need a separate client for handling subscriptions
