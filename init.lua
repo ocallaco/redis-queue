@@ -23,6 +23,9 @@ local FAILED = "RESERVED:FAILED" -- list
 local TYPEQUEUE = "queue"
 local TYPELBQUEUE = "lbqueue"
 
+-- other constants
+local INCREMENT = "INC"
+
 -- atomic functions
 
 local evals = {
@@ -161,11 +164,12 @@ local evals = {
 
    -- check if job exists.  if so, see if it's running.  if so, put on waiting list, otherwise, increment it
    -- note: hsetnx() ALWAYS returns integer 1 or 0
-   lbenqueue = function(queue, jobJson, jobName, jobHash, cb)
+   lbenqueue = function(queue, jobJson, jobName, jobHash, priority, cb)
       local script = [[
       local jobJson = ARGV[1]
       local jobName = ARGV[2]
       local jobHash = ARGV[3]
+      local priority = ARGV[4]
 
       local queue = KEYS[1]
       local chann = KEYS[2]
@@ -184,10 +188,15 @@ local evals = {
          end
       end
 
-      redis.call('zincrby', queue, -1, jobHash)
+      if priority == "INC" then 
+         redis.call('zincrby', queue, -1, jobHash)
+      else
+         redis.call('zadd', queue, tonumber(priority), jobHash)
+      end
+
       redis.call('publish', chann, jobName)
       ]] 
-      return  script, 5, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, jobJson, jobName, jobHash, cb
+      return  script, 5, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, jobJson, jobName, jobHash, priority, cb
 
    end,
 
@@ -332,7 +341,8 @@ function RedisQueue:enqueue(queue, jobName, argtable, jobHash)
 end
 
 -- this enqueues a job on a priority queue.  this way more identical jobs raises the priority of that job
-function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash, cb)
+-- if given a priority, sets that priority explicitly
+function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash, priority, cb)
    -- instance allows multiple identical jobs to sit on the waiting set
    local job = { queue = LBQUEUE .. queue, name = jobName, args = argtable, instance = async.hrtime()}
 
@@ -345,10 +355,16 @@ function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash, cb)
       
    jobHash = job.hash
 
-   cb = cb or function(res) return end
+   if type(priority) == "function" then
+      cb = priority
+      priority = INCREMENT
+   else
+      priority = priority or INCREMENT
+      cb = cb or function(res) return end
+   end
 
    local jobJson = json.encode(job)
-   self.redis.eval(evals.lbenqueue(queue, jobJson, jobName, jobHash, cb))
+   self.redis.eval(evals.lbenqueue(queue, jobJson, jobName, jobHash, priority, cb))
 end
 
 function RedisQueue:dequeueAndRun(queue, queueType)
