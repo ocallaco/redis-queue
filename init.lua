@@ -418,7 +418,6 @@ function RedisQueue:dequeueAndRun(queue, queueType)
             
             -- call the custom cleanup code for this type of queue
             self.redis.eval(cleanupFunct(queue, self.workername, res.hash, function(response)
-               print(response .. " " .. res.hash)
             end))
 
             self.busy = false
