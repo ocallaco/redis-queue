@@ -438,7 +438,6 @@ function RedisQueue:dequeueAndRun(queue, queueType)
 
             self.busy = false
             self.state = "Ready"
-
          else
             -- if we take a nil message off the queue, there's nothing left to process on that queue
             self.state = "Ready"
@@ -491,6 +490,7 @@ end
 -- please call this at the end of subscribing
 function RedisQueue:doneSubscribing()
    for queue,qtype in pairs(self.subscribedQueues) do
+      self.queuesWaiting[queue] = true
       self:dequeueAndRun(queue, qtype)
    end
 end
