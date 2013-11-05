@@ -440,7 +440,7 @@ function RedisQueue:dequeueAndRun(queue, queueType)
    end))
 end
 
-function RedisQueue:subcribeJob(queue, jobname, cb)
+function RedisQueue:subscribeJob(queue, jobname, cb)
    if self.jobs[jobname] or self.subscribedQueues[queue] then
       -- don't need to resubscribe, just change the callback
       self.jobs[jobname] = cb 
