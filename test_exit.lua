@@ -23,7 +23,7 @@ fiber(function()
       worker.queue = q(client)
       worker.queue:registerWorker(redis_addr, function()
          print("test start ")
-         worker.queue:subscribeLBJob("TEST", "testJob", function(args) 
+         worker.queue:subscribeJob("TEST", "testJob", function(args) 
             os.exit()
          end)
 

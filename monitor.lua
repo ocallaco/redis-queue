@@ -112,18 +112,40 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
 
          wrows = table.concat(wrows)
 
-         local failed = wait(client.lrange, {"RESERVED:FAILED",0,-1})
+         
+         local failures = wait({client.hgetall, client.hgetall}, 
+            {{"RESERVED:FAILEDJOBS"},{"RESERVED:FAILEDERROR"}})
+
+
+         local failedJobs = {}
+         local failureReasons = {}
+
+         for i=1,#failures[1][1],2 do
+            local jobHash = failures[1][1][i]
+            local jobJson = failures[1][1][i+1]
+            failedJobs[jobHash] = jobJson
+         end
+
+         for i=1,#failures[2][1],2 do
+            local jobHash = failures[2][1][i]
+            local jobError = failures[2][1][i+1]
+            failureReasons[jobHash] = jobError
+         end
 
          local frows = {}
 
-         for i = 1,#failed,2 do
+         for k,v in pairs(failedJobs) do
+                        
             local row = [[
             <tr> 
-            <td> ${job} </td> 
+            <td> ${name} </td> 
+            <td> ${err} </td> 
             <td> ${retry} </td> 
+
             </tr>
             ]] % {
-               job = failed[i],
+               name = k,
+               err = tostring(failureReasons[k]),
                retry = "/retry"
             }
             table.insert(frows, row)
@@ -198,7 +220,7 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
 
                   
                   <table>
-                     <tr> <th>Failed Jobs</th> <th>Retry</th> </tr>
+                     <tr> <th>Failed</th><th>Reason</th><th>Retry</th> </tr>
                      ${failedvals}
                   </table>
 
@@ -209,7 +231,8 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
          -- html response:
          res(page, {['Content-Type']='text/html'})
       elseif req.url.path == "/clearfailed" then
-         client.del("RESERVED:FAILED")
+         client.del("RESERVED:FAILEDJOBS")
+         client.del("RESERVED:FAILEDERROR")
          res("failed jobs cleared", {['Content-Type']='text/html'})
       elseif req.url.path:find("/clear")then
          print(pretty.write(req.url))

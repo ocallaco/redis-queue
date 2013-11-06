@@ -16,7 +16,8 @@ local LBWAITING = "LBWAITING:" -- Set
 
 -- reserved 
 local RUNNING = "RESERVED:RUNNINGJOBS" -- hash
-local FAILED = "RESERVED:FAILED" -- list
+local FAILED = "RESERVED:FAILEDJOBS" -- hash 
+local FAILED_ERROR = "RESERVED:FAILEDERROR" -- hash 
 
 -- queue Types
 
@@ -36,6 +37,7 @@ local evals = {
       local script = [[
       local runningJobs = KEYS[1]
       local failedJobs = KEYS[2]
+      local failureErrors = KEYS[3]
 
       local clientList = redis.call('client', 'list')
       local liveWorkers = {}
@@ -61,18 +63,45 @@ local evals = {
 
       if #deadWorkers > 0 then
          local deadJobs = redis.call('hmget', runningJobs, unpack(deadWorkers))
-         for i,job in ipairs(deadJobs) do
-            local ass,hole,queue = job:find('"queue":"(.-)"')
-            local dung,pee,jobHash =  job:find('"hash":"(.-)"')
-            local piss,crap,queuetype,queuename = queue:find("^(.-):(.*)$")
+         local newFailedJobs = {}
+         local failureReasons = {}
 
-            if queuetype == "LBQUEUE" and jobHash then
-               redis.call('hdel', "LBBUSY:"..queuename, jobHash)
-            elseif queuetype == "QUEUE" and jobHash then 
-               redis.call('hdel', "UNIQUE:"..queuename, jobHash)
+         for i,job in pairs(deadJobs) do
+            if job then
+               local ass,hole,queue = job:find('"queue":"(.-)"')
+               local dung,pee,jobHash =  job:find('"hash":"(.-)"')
+               local piss,crap,queuetype,queuename = queue:find("^(.-):(.*)$")
+
+               local failureHash = nil
+
+               if jobHash == "0" then
+                  local fgh,hgf,args = job:find('"args":{(.-)}')
+                  local xyz,zyx,jobName = job:find('"name":"(.-)"')
+                  failureHash = queue .. ":" .. jobName .. ":" .. args
+               else
+                  failureHash = queue .. ":" .. jobHash
+               end
+
+               table.insert(newFailedJobs, failureHash)
+               table.insert(newFailedJobs, job)
+
+               table.insert(failureReasons, failureHash)
+               table.insert(failureReasons, "Job left behind by dead worker")
+
+               if queuetype == "LBQUEUE" and jobHash then
+                  redis.call('hdel', "LBBUSY:"..queuename, jobHash)
+               elseif queuetype == "QUEUE" and jobHash then 
+                  redis.call('hdel', "UNIQUE:"..queuename, jobHash)
+               end
             end
-            redis.call('hdel', runningJobs, unpack(deadWorkers))
-            redis.call('lpush', failedJobs, unpack(deadJobs))
+         end
+
+         
+         redis.call('hdel', runningJobs, unpack(deadWorkers))
+         if #newFailedJobs > 0 then
+            print(table.concat(newFailedJobs))
+            redis.call('hmset', failedJobs, unpack(newFailedJobs))
+            redis.call('hmset', failureErrors, unpack(failureReasons))
          end
 
          jobsCleaned = #deadJobs
@@ -80,7 +109,7 @@ local evals = {
 
       return jobsCleaned
       ]]
-      return script, 2, RUNNING, FAILED, cb
+      return script, 3, RUNNING, FAILED, FAILED_ERROR, cb
    end,
 
    -- enqueue on a standard queue -- check for hash uniqueness so we don't put the same job on twice
@@ -128,18 +157,28 @@ local evals = {
    end,
 
    -- if crash, cleanup by moving job from runnning list to failed list
-   failure = function(queue, workername, cb)
+   failure = function(workername, queue, jobHash, errormessage, cb)
       local script = [[
       local workername = ARGV[1]
+      local queue = ARGV[2]
+      local jobhash = ARGV[3]
+      local errormessage = ARGV[4]
+
+
       local runningJobs = KEYS[1]
       local failedJobs = KEYS[2]
+      local failureReasons = KEYS[3]
 
       local job = redis.call('hget', runningJobs, workername)
-      redis.call('lpush', failedJobs, job)
+
+      local failureHash = queue .. ":" .. jobhash
+      redis.call('hset', failedJobs, failureHash, job)
+      redis.call('hset', failureReasons, failureHash, errormessage)
+
       return redis.call('hdel', runningJobs, workername)
       ]]
 
-      return script, 2, RUNNING, FAILED, workername, cb
+      return script, 3, RUNNING, FAILED, FAILED_ERROR, workername, queue, jobHash, errormessage, cb
    end,
 
    -- after successful completion, remove job from running and uniqueness hash (if necessary)
@@ -267,22 +306,30 @@ local evals = {
       return script, 5, LBQUEUE .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, RUNNING, workername, cb
    end,
     -- this needs to be built out better 
-   lbfailure = function(queue, workername, cb)
+   lbfailure = function(workername, queue, jobHash, errormessage, cb)
       local script = [[
       local workername = ARGV[1]
+      local queue = ARGV[2]
+      local jobhash = ARGV[3]
+      local errormessage = ARGV[4]
+
+
       local runningJobs = KEYS[1]
       local failedJobs = KEYS[2]
+      local failureReasons = KEYS[3]
 
       local job = redis.call('hget', runningJobs, workername)
-      
-      redis.call('lpush', failedJobs, job)
+
+      local failureHash = queue .. ":" .. jobhash
+      redis.call('hset', failedJobs, failureHash, job)
+      redis.call('hset', failureReasons, failureHash, errormessage)
 
       return redis.call('hdel', runningJobs, workername)
       ]]
 
-      return script, 2, RUNNING, FAILED, workername, cb
+      return script, 3, RUNNING, FAILED, FAILED_ERROR, workername, queue, jobHash, errormessage, cb
    end,
-         
+            
    lbcleanup = function(queue, workername, jobHash, cb)
 
       -- job's done, take it off the running list, worker is no longer busy
@@ -426,7 +473,13 @@ function RedisQueue:dequeueAndRun(queue, queueType)
             -- if not ok, the pcall crashed -- report the error...
             if not ok then 
                print(err) 
-               self.redis.eval(failureFunct(queue, self.workername, function(res)
+               local failureHash
+               if res.hash == "0" then
+                  failureHash = res.name .. ":" .. json.encode(res.args)
+               else
+                  failureHash = res.hash
+               end
+               self.redis.eval(failureFunct(self.workername, queue, failureHash, err, function(res)
                   print("ERROR ON JOB " .. err )
                   print("ATTEMPTED CLEANUP: REDIS RESPONSE " .. res)
                end))
@@ -512,6 +565,7 @@ function RedisQueue:registerWorker(redisDetails, cb)
 
    -- do cleanup in case dead workers are locking the queues
    self.redis.eval(evals.newworker(function(res) 
+      print("CLEANED UP " .. pretty.write(res) .. " QUEUES")
       self.redis.client('SETNAME', name, function(res)
          self.workername = name
          -- we need a separate client for handling subscriptions

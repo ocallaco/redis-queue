@@ -17,9 +17,13 @@ fiber(function()
       print("test start")
 
       for i = 1,200 do
-         queue:enqueue("TEST", "testJob", {a = 1, b = "test", testnumber = i}, i)
+         queue:enqueue("TEST", "testJob", {a = 1, b = "test", testnumber = i})
       end
       
+      async.setTimeout(2800, function()
+         client.del("QUEUE:TEST")
+         client.del("UNIQUE:TEST")
+      end)
       async.setTimeout(3000, function()
          client.close()
       end)
