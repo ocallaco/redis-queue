@@ -191,6 +191,9 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
                      <tr> <th>Busy Workers</th> <th>Current Job</th> </tr>
                      ${workervals}
                   </table>
+                  
+
+                  <a href="/clearfailed">Clear Failed Jobs </a>
 
 
                   
@@ -205,6 +208,9 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
 
          -- html response:
          res(page, {['Content-Type']='text/html'})
+      elseif req.url.path == "/clearfailed" then
+         client.del("RESERVED:FAILED")
+         res("failed jobs cleared", {['Content-Type']='text/html'})
       elseif req.url.path:find("/clear")then
          print(pretty.write(req.url))
          local x,y,queue= req.url.query:find("queue=(%a+)")
