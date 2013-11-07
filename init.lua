@@ -27,6 +27,14 @@ local TYPELBQUEUE = "lbqueue"
 -- other constants
 local INCREMENT = "INC"
 
+local ILLEGAL_ARGS = {
+   "name",
+   "instance",
+   "queue",
+   "args",
+   "hash",
+}
+
 -- atomic functions
 
 local evals = {
@@ -365,6 +373,19 @@ local evals = {
    end,
 }
 
+
+local function checkArgs(args)
+   argsjson = json.encode(args)
+
+   print("JSON: " ..argsjson)
+   for i,arg in ipairs(ILLEGAL_ARGS) do
+      local key = argsjson:find('"' .. arg .. '":')
+      if key then
+         error("Illegal string in arguments table: " .. arg)
+      end
+   end
+end
+
 RedisQueue = {meta = {}}
 
 function RedisQueue.meta:__index(key)
@@ -372,6 +393,9 @@ function RedisQueue.meta:__index(key)
 end
 
 function RedisQueue:enqueue(queue, jobName, argtable, jobHash)
+
+   checkArgs(argtable)
+
    local job = {queue = QUEUE .. queue, name = jobName, args = argtable}
 
    if jobHash and jobHash ~= 0 then
@@ -390,6 +414,9 @@ end
 -- this enqueues a job on a priority queue.  this way more identical jobs raises the priority of that job
 -- if given a priority, sets that priority explicitly
 function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash, priority, cb)
+   
+   checkArgs(argtable)
+
    -- instance allows multiple identical jobs to sit on the waiting set
    local job = { queue = LBQUEUE .. queue, name = jobName, args = argtable, instance = async.hrtime()}
 
