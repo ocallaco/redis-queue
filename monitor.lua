@@ -39,9 +39,9 @@ local function url_decode(str)
   return str
 end
 
---                  <meta http-equiv="refresh" content="5">
 local header = [[
                <head>
+                  <meta http-equiv="refresh" content="5">
                   <style type="text/css">
                      html,body {font-family: Helvetica;}
                      h1 {color:#22a;}
@@ -74,22 +74,18 @@ local header = [[
 
 local mainPage = function(req, res)
    -- collect data:
-   local resp = wait(client.keys, {'*'})
+
+   local qconfig = queueClient.config.configtbl or {}
 
    local queues = {}
    local lbqueues = {}
 
    -- identify keys
-   for i,key in ipairs(resp) do
-      local x,y,name = key:find("LBQUEUE:(.*)") 
-
-      if name then
-         table.insert(lbqueues, name)
+   for queue,qType in pairs(qconfig) do
+      if qType == "LBQUEUE" then
+         table.insert(lbqueues, queue)
       else
-         local x,y,name = key:find("QUEUE:(.*)")
-         if name then
-            table.insert(queues, name)
-         end
+         table.insert(queues, queue)
       end
    end
 
@@ -109,8 +105,8 @@ local mainPage = function(req, res)
       </tr>
       ]] % {
          name = key,
-         queue = vals[1][1],
-         hashes = vals[2][1],
+         queue = vals[1][1] or 0,
+         hashes = vals[2][1] or 0,
          clearurl = "/clear?queue="..key
       }
       table.insert(qrows, row)
@@ -132,10 +128,10 @@ local mainPage = function(req, res)
       </tr>
       ]] % {
          name = key,
-         queue = vals[1][1],
-         jobs = vals[2][1],
-         busy = vals[3][1],
-         waiting = vals[4][1],
+         queue = vals[1][1] or 0,
+         jobs = vals[2][1] or 0,
+         busy = vals[3][1] or 0,
+         waiting = vals[4][1] or 0,
          clearurl = "/clear?queue="..key.."&type=LB"
       }
       table.insert(lbqrows, row)
