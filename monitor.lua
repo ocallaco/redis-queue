@@ -353,7 +353,7 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
          clearfailed(res)
       elseif req.url.path == "/clear" then
          clearQueue(req,res)
-      elseif req.url.path == "/showJob" then
+      elseif req.url.path == "/showjob" then
          showJob(req,res)
       elseif req.url.path == "/retryjob" then
          retryJob(req,res)
