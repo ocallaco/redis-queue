@@ -42,6 +42,7 @@ end
 local header = [[
                <head>
                   <meta http-equiv="refresh" content="5">
+                  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
                   <style type="text/css">
                      html,body {font-family: Helvetica;}
                      h1 {color:#22a;}
