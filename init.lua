@@ -256,7 +256,7 @@ local evals = {
 
    -- check if job exists.  if so, see if it's running.  if so, put on waiting list, otherwise, increment it
    -- note: hsetnx() ALWAYS returns integer 1 or 0
-   lbenqueue = function(queue, jobJson, jobName, jobHash, failureHash, priority, cb)
+   lbenqueue = function(queue, jobJson, jobName, jobHash, priority, cb)
       local script = [[
       local jobJson = ARGV[1]
       local jobName = ARGV[2]
@@ -288,17 +288,18 @@ local evals = {
 
       redis.call('publish', chann, jobName)
       ]] 
-      return  script, 5, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, jobJson, jobName, jobHash, failureHash, priority, cb
+      return  script, 5, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, jobJson, jobName, jobHash, priority, cb
 
    end,
 
      
-   lbreenqueue = function(queue, jobJson, jobName, jobHash, priority, cb)
+   lbreenqueue = function(queue, jobJson, jobName, jobHash, failureHash, priority, cb)
       local script = [[
       local jobJson = ARGV[1]
       local jobName = ARGV[2]
       local jobHash = ARGV[3]
-      local priority = ARGV[4]
+      local failureHash = ARGV[4]
+      local priority = ARGV[5]
 
       local queue = KEYS[1]
       local chann = KEYS[2]
@@ -332,7 +333,7 @@ local evals = {
       redis.call('hdel', failedError, failureHash) 
 
       ]] 
-      return  script, 7, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, FAILED, FAILED_ERROR, jobJson, jobName, jobHash, priority, cb
+      return  script, 7, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, FAILED, FAILED_ERROR, jobJson, jobName, jobHash, failureHash, priority, cb
 
    end,
       
