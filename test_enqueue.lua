@@ -12,17 +12,19 @@ fiber(function()
    rc.connect({host='localhost', port=6379}, function(client)
       redis_client = client
 
-      local queue = q(redis_client)
+      local queue 
+      q(redis_client, function(newqueue)
+         queue = newqueue
+         print("test start")
 
-      print("test start")
-
-      for i = 1,200 do
-         queue:enqueue("TEST", "testJob", {a = 1, b = "test", testnumber = i})
-      end
+         for i = 1,200 do
+            queue:enqueue("USER", "testJob", {conallhash  = "TEST", a = 1, b = "test", testnumber = i})
+         end
+      end)
       
       async.setTimeout(2800, function()
-         client.del("QUEUE:TEST")
-         client.del("UNIQUE:TEST")
+         client.del("QUEUE:USER")
+         client.del("UNIQUE:USER")
       end)
       async.setTimeout(3000, function()
          client.close()

@@ -24,7 +24,7 @@ fiber(function()
          worker.queue = q(client)
          worker.queue:registerWorker(redis_addr, function()
             print("test start " .. i)
-            worker.queue:subcribeJob("TEST", "testJob", function(args) 
+            worker.queue:subscribeJob("USER", "testJob", function(args) 
                if jobsSeen[args.testnumber] then
                   error("JOB " .. args.testnumber .. " already seen!")
                end

@@ -2,6 +2,11 @@ local json = require 'cjson'
 local async = require 'async'
 local redisasync = require 'redis-async'
 
+local fiber = async.fiber
+local wait = fiber.wait
+
+local qc = require 'redis-queue.config'
+
 -- standard queues
 local QUEUE = "QUEUE:"
 local CHANNEL = "CHANNEL:"
@@ -34,6 +39,14 @@ local ILLEGAL_ARGS = {
    "args",
    "hash",
 }
+
+
+RedisQueue = {meta = {}}
+
+function RedisQueue.meta:__index(key)
+   return RedisQueue[key]
+end
+
 
 -- atomic functions
 
@@ -107,7 +120,6 @@ local evals = {
          
          redis.call('hdel', runningJobs, unpack(deadWorkers))
          if #newFailedJobs > 0 then
-            print(table.concat(newFailedJobs))
             redis.call('hmset', failedJobs, unpack(newFailedJobs))
             redis.call('hmset', failureErrors, unpack(failureReasons))
          end
@@ -147,6 +159,39 @@ local evals = {
       end
       ]] 
       return script, 3, QUEUE .. queue, CHANNEL .. queue, UNIQUE .. queue, jobJson, jobName, jobHash, cb
+   end,
+
+   reenqueue = function(queue, jobJson, jobName, failureHash, jobHash, cb)
+-- script is the same as enqueue, just deletes the 
+      local script = [[
+
+      local job = ARGV[1]
+      local jobName = ARGV[2]
+      local failureHash = ARGV[3]
+      local jobHash = ARGV[4]
+
+      local queue = KEYS[1]
+      local chann = KEYS[2]
+      local uniqueness = KEYS[3]
+      local failed = KEYS[4]
+      local failedError = KEYS[5]
+
+      local newjob = 0
+
+      if jobHash and jobHash ~= "0" then
+         newjob = redis.call('hsetnx', uniqueness, jobHash, 1)
+      else
+         newjob = 1
+      end
+
+      if newjob ~= 0 then
+         redis.call('lpush', queue, job)
+         redis.call('publish', chann, jobName)
+         redis.call('hdel', failed, failureHash) 
+         redis.call('hdel', failedError, failureHash) 
+      end 
+      ]] 
+      return script, 5, QUEUE .. queue, CHANNEL .. queue, UNIQUE .. queue, FAILED, FAILED_ERROR, jobJson, jobName, failureHash, jobHash, cb
    end,
 
 
@@ -211,7 +256,7 @@ local evals = {
 
    -- check if job exists.  if so, see if it's running.  if so, put on waiting list, otherwise, increment it
    -- note: hsetnx() ALWAYS returns integer 1 or 0
-   lbenqueue = function(queue, jobJson, jobName, jobHash, priority, cb)
+   lbenqueue = function(queue, jobJson, jobName, jobHash, failureHash, priority, cb)
       local script = [[
       local jobJson = ARGV[1]
       local jobName = ARGV[2]
@@ -243,10 +288,54 @@ local evals = {
 
       redis.call('publish', chann, jobName)
       ]] 
-      return  script, 5, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, jobJson, jobName, jobHash, priority, cb
+      return  script, 5, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, jobJson, jobName, jobHash, failureHash, priority, cb
 
    end,
 
+     
+   lbreenqueue = function(queue, jobJson, jobName, jobHash, priority, cb)
+      local script = [[
+      local jobJson = ARGV[1]
+      local jobName = ARGV[2]
+      local jobHash = ARGV[3]
+      local priority = ARGV[4]
+
+      local queue = KEYS[1]
+      local chann = KEYS[2]
+      local jobmatch = KEYS[3]
+      local busy = KEYS[4]
+      local waiting = KEYS[5]
+      local failed = KEYS[6]
+      local failedError = KEYS[7]
+
+      local jobExists = redis.call('hsetnx', jobmatch, jobHash, jobJson)
+
+      if jobExists == 0 then
+         local isbusy = redis.call('hget', busy, jobHash) 
+         if isbusy then
+            redis.call('sadd', waiting, jobJson)
+            redis.call('publish', chann, jobName)
+            redis.call('hdel', failed, failureHash) 
+            redis.call('hdel', failedError, failureHash) 
+            return
+         end
+      end
+
+      if priority == "INC" then 
+         redis.call('zincrby', queue, -1, jobHash)
+      else
+         redis.call('zadd', queue, tonumber(priority), jobHash)
+      end
+
+      redis.call('publish', chann, jobName)
+      redis.call('hdel', failed, failureHash) 
+      redis.call('hdel', failedError, failureHash) 
+
+      ]] 
+      return  script, 7, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, FAILED, FAILED_ERROR, jobJson, jobName, jobHash, priority, cb
+
+   end,
+      
    -- check for waiting jobs.  see if they're on the busy list.  if not, increment them on the queue
    -- note, could be more efficient by tallying up the times i see a hash and zincrby only once per hash
    -- but this is already pretty elaborate.  don't want more moving parts to get me confused right now
@@ -377,7 +466,6 @@ local evals = {
 local function checkArgs(args)
    argsjson = json.encode(args)
 
-   print("JSON: " ..argsjson)
    for i,arg in ipairs(ILLEGAL_ARGS) do
       local key = argsjson:find('"' .. arg .. '":')
       if key then
@@ -386,15 +474,14 @@ local function checkArgs(args)
    end
 end
 
-RedisQueue = {meta = {}}
-
-function RedisQueue.meta:__index(key)
-   return RedisQueue[key]
-end
-
 function RedisQueue:enqueue(queue, jobName, argtable, jobHash)
 
    checkArgs(argtable)
+   local qType = self.config:getqueuetype(queue)
+
+   if qType ~= "QUEUE" then
+      error("WRONG TYPE OF QUEUE")
+   end
 
    local job = {queue = QUEUE .. queue, name = jobName, args = argtable}
 
@@ -416,6 +503,12 @@ end
 function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash, priority, cb)
    
    checkArgs(argtable)
+
+   local qType = self.config:getqueuetype(queue)
+
+   if qType ~= "LBQUEUE" then
+      error("WRONG TYPE OF QUEUE")
+   end
 
    -- instance allows multiple identical jobs to sit on the waiting set
    local job = { queue = LBQUEUE .. queue, name = jobName, args = argtable, instance = async.hrtime()}
@@ -439,6 +532,20 @@ function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash, priority, cb)
 
    local jobJson = json.encode(job)
    self.redis.eval(evals.lbenqueue(queue, jobJson, jobName, jobHash, priority, cb))
+end
+
+function RedisQueue:reenqueue(failureId, jobJson, cb)
+   local _,_,queueArg = jobJson:find('"queue":"(.-)"')
+   local _,_,qType,queue = queueArg:find('(.*):(.*)')
+
+   local _,_,jobHash = jobJson:find('"hash":"(.-)"')
+   local _,_,jobName = jobJson:find('"name":"(.-)"')
+   if qType == "LBQUEUE" then
+      -- we use increment as the retry because you want it to run immediately, presumably.
+      self.redis.eval(evals.lbreenqueue(queue, jobJson, jobName, jobHash, INCREMENT, cb))
+   else
+      self.redis.eval(evals.reenqueue(queue, jobJson, jobName, jobHash, cb))
+   end
 end
 
 function RedisQueue:dequeueAndRun(queue, queueType)
@@ -614,13 +721,20 @@ function RedisQueue:close()
    end
 end
 
-function RedisQueue:new(redis, ...)
+function RedisQueue:new(redis, cb)
    local newqueue = {}
+
+   -- need to fix this so we can wait until the queue is ready
    newqueue.redis = redis
    newqueue.jobs = {}
+   newqueue.config = qc(redis)
+
    setmetatable(newqueue, RedisQueue.meta)
-  
---   newqueue:registerWorker()
+   newqueue.config:fetchConfig(function()
+      if cb then
+         cb(newqueue)
+      end
+   end)
 
    return newqueue
 end
