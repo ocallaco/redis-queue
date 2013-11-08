@@ -24,9 +24,9 @@ fiber(function()
          worker.queue = q(client)
          worker.queue:registerWorker(redis_addr, function()
             print("test start " .. i)
-            worker.queue:subscribeLBJob("TEST", "testJob", function(args) 
+            worker.queue:subscribeLBJob("USER", "testJob", function(args) 
 
-               --print(pretty.write(args))
+               print(pretty.write(args))
 
                jobsSeen[args.testnumber] = true
                table.insert(jobsSeenBy[i], args.testnumber)

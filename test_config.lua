@@ -9,24 +9,28 @@ fiber(function()
    local redis_client
 
 
+
+
    rc.connect({host='localhost', port=6379}, function(client)
       redis_client = client
 
-      local queue 
-      q(redis_client, function(newqueue)
-         queue = newqueue
-         print("test start")
+      local queue = q(client)
 
-         for i = 1,200 do
-            queue:enqueue("WALL", "testJob", {conallhash  = "TEST", a = 1, b = "test", testnumber = i})
-         end
-      end)
-      
+      print("test start")
+
+      local testConfig = {
+         ['TEST1'] = queue.config.queueTypes[1],
+         ['TEST2'] = queue.config.queueTypes[2],
+      }
+      queue.config:setConfig(testConfig)
+
       async.setTimeout(2800, function()
-         client.del("QUEUE:WALL")
-         client.del("UNIQUE:WALL")
+
+         queue.config:fetchConfig()
+
       end)
       async.setTimeout(3000, function()
+         print(pretty.write(queue.config.configtbl))
          client.close()
       end)
 
@@ -34,6 +38,3 @@ fiber(function()
 end)
 
 async.go()
-
-
-

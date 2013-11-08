@@ -2,9 +2,6 @@ local json = require 'cjson'
 local async = require 'async'
 local redisasync = require 'redis-async'
 
-local fiber = async.fiber
-local wait = fiber.wait
-
 local qc = require 'redis-queue.config'
 
 -- standard queues
@@ -543,9 +540,9 @@ function RedisQueue:reenqueue(failureId, jobJson, cb)
    local _,_,jobName = jobJson:find('"name":"(.-)"')
    if qType == "LBQUEUE" then
       -- we use increment as the retry because you want it to run immediately, presumably.
-      self.redis.eval(evals.lbreenqueue(queue, jobJson, jobName, jobHash, INCREMENT, cb))
+      self.redis.eval(evals.lbreenqueue(queue, jobJson, jobName, jobHash, failureId, INCREMENT, cb))
    else
-      self.redis.eval(evals.reenqueue(queue, jobJson, jobName, jobHash, cb))
+      self.redis.eval(evals.reenqueue(queue, jobJson, jobName, failureId, jobHash, cb))
    end
 end
 

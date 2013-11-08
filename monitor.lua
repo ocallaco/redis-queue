@@ -39,9 +39,9 @@ local function url_decode(str)
   return str
 end
 
+--                  <meta http-equiv="refresh" content="5">
 local header = [[
                <head>
-                  <meta http-equiv="refresh" content="5">
                   <style type="text/css">
                      html,body {font-family: Helvetica;}
                      h1 {color:#22a;}
@@ -190,15 +190,16 @@ local mainPage = function(req, res)
       <tr> 
       <td> ${name} </td> 
       <td> ${err} </td> 
-      <td><a href="${retryurl}" onclick="return confirm('Are you sure?')">Retry</a></td>
       <td><a href="${showurl}">Show</a></td>
-
+      <td><a href="${retryurl}" onclick="return confirm('Are you sure?')">Retry</a></td>
+      <td><a href="${clearurl}" onclick="return confirm('Are you sure?')">Clear</a></td>
       </tr>
       ]] % {
          name = k,
          err = tostring(failureReasons[k]),
          retryurl = "/retryjob?id=" .. url_encode(k),
          showurl = "/showjob?id=" .. url_encode(k),
+         clearurl = "/clearjob?id=" .. url_encode(k),
 
       }
       table.insert(frows, row)
@@ -240,7 +241,7 @@ local mainPage = function(req, res)
    <a href="/clearfailed">Clear Failed Jobs </a>
 
    <table>
-   <tr> <th>Failed</th><th>Reason</th><th>Retry</th> </tr>
+   <tr> <th>Failed</th><th>Reason</th><th>Show/th><th>Retry</th><th>Clear</th> </tr>
    ${failedvals}
    </table>
 
@@ -329,6 +330,19 @@ local retryJob = function(req,res)
 
 end
 
+local clearFailedJob = function(req,res)
+   local _,_,jobname = req.url.query:find("id=(.*)")
+
+   jobname = url_decode(jobname)
+
+   local args = wait(client.hget, {"RESERVED:FAILEDJOBS", jobname})
+
+   wait({client.hdel, client.hdel}, {{"RESERVED:FAILEDJOBS", jobname},{"RESERVED:FAILEDERROR", jobname}})
+
+   res("OK ".. jobname .." cleared", {['Content-Type']='text/html'})
+
+end
+
 
 -- listen up:
 async.http.listen('http://0.0.0.0:'..port, function(req,res)
@@ -341,13 +355,15 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
          mainPage(req,res)
       elseif req.url.path == "/clearfailed" then
          clearfailed(res)
-      elseif req.url.path:find("/clear")then
+      elseif req.url.path == "/clear" then
          clearQueue(req,res)
-      elseif req.url.path:find("/show")then
+      elseif req.url.path == "/show" then
          showJob(req,res)
-      elseif req.url.path:find("/retry")then
+      elseif req.url.path == "/retryjob" then
          retryJob(req,res)
-      elseif req.url.path:find("/die")then
+      elseif req.url.path == "/clearjob" then
+         clearFailedJob(req,res)
+      elseif req.url.path == "/die" then
          os.exit()
       end
    end)
