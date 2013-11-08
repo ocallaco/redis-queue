@@ -237,7 +237,7 @@ local mainPage = function(req, res)
    <a href="/clearfailed">Clear Failed Jobs </a>
 
    <table>
-   <tr> <th>Failed</th><th>Reason</th><th>Show/th><th>Retry</th><th>Clear</th> </tr>
+   <tr> <th>Failed</th><th>Reason</th><th>Show</th><th>Retry</th><th>Clear</th> </tr>
    ${failedvals}
    </table>
 
@@ -353,7 +353,7 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
          clearfailed(res)
       elseif req.url.path == "/clear" then
          clearQueue(req,res)
-      elseif req.url.path == "/show" then
+      elseif req.url.path == "/showJob" then
          showJob(req,res)
       elseif req.url.path == "/retryjob" then
          retryJob(req,res)
