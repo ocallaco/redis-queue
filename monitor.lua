@@ -193,7 +193,7 @@ local mainPage = function(req, res)
       </tr>
       ]] % {
          name = k,
-         err = tostring(failureReasons[k]),
+         err = tostring(stringx.shorten(failureReasons[k], 100, false)),
          retryurl = "/retryjob?id=" .. url_encode(k),
          showurl = "/showjob?id=" .. url_encode(k),
          clearurl = "/clearjob?id=" .. url_encode(k),

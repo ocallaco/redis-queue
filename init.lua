@@ -598,23 +598,29 @@ function RedisQueue:dequeueAndRun(queue, queueType)
             self.state = "Running:" .. res.name
 
             -- run it in a pcall
-            local ok, err = pcall(function()
+            xpcall(function()
                self.jobs[res.name](res.args)
-            end)
+            end,
+               function()
+                  err = debug.traceback()
+                  print(err) 
+                  local failureHash
+                  if res.hash == "0" then
+                     failureHash = res.name .. ":" .. json.encode(res.args)
+                  else
+                     failureHash = res.hash
+                  end
+
+                  self.redis.eval(failureFunct(self.workername, queue, failureHash, err, function(res)
+                     print("ERROR ON JOB " .. err )
+                     print("ATTEMPTED CLEANUP: REDIS RESPONSE " .. res)
+                  end))      
+               end
+            )
 
             -- if not ok, the pcall crashed -- report the error...
             if not ok then 
-               print(err) 
-               local failureHash
-               if res.hash == "0" then
-                  failureHash = res.name .. ":" .. json.encode(res.args)
-               else
-                  failureHash = res.hash
-               end
-               self.redis.eval(failureFunct(self.workername, queue, failureHash, err, function(res)
-                  print("ERROR ON JOB " .. err )
-                  print("ATTEMPTED CLEANUP: REDIS RESPONSE " .. res)
-               end))
+
             end
             
             -- call the custom cleanup code for this type of queue

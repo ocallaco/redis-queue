@@ -6,6 +6,13 @@ local fiber = require 'async.fiber'
 
 local redis_addr = {host='localhost', port=6379}
 
+local errfunc2 = function(x)
+   assert(x)
+end
+local errfunc = function()
+   errfunc2(false)
+end
+
 fiber(function()
 
    local jobsSeen = {}
@@ -24,10 +31,11 @@ fiber(function()
          worker.queue = q(client)
          worker.queue:registerWorker(redis_addr, function()
             print("test start " .. i)
-            worker.queue:subscribeJob("USER", "testJob", function(args) 
-               error("ERROR THROWN")
+            worker.queue:subscribeJob("WALL", "testJob", function(args) 
+               errfunc()
             end)
          end)
+         
 
          if i == 1 then
             async.setTimeout(15000, function()
