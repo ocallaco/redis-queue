@@ -228,7 +228,7 @@ local evals = {
       return redis.call('hdel', runningJobs, workername)
       ]]
 
-      return script, 3, RUNNING, FAILED, FAILED_ERROR, workername, queue, jobHash, errormessage, cb
+      return script, 3, RUNNING, FAILED, FAILED_ERROR, workername, QUEUE .. queue, jobHash, errormessage, cb
    end,
 
    -- after successful completion, remove job from running and uniqueness hash (if necessary)
@@ -422,7 +422,7 @@ local evals = {
       return redis.call('hdel', runningJobs, workername)
       ]]
 
-      return script, 3, RUNNING, FAILED, FAILED_ERROR, workername, queue, jobHash, errormessage, cb
+      return script, 3, RUNNING, FAILED, FAILED_ERROR, workername, LBQUEUE .. queue, jobHash, errormessage, cb
    end,
             
    lbcleanup = function(queue, workername, jobHash, cb)
