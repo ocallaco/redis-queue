@@ -21,6 +21,21 @@ rc.connect({host=host, port=6379}, function(c)
    end) 
 end)
 
+local function gettimeago(ts)
+   local now = os.time()
+   local diff = now - ts
+
+   if diff < 60 then
+      return diff .. " seconds ago"
+   elseif diff < 60 * 60 then
+      return  math.floor(diff / 60) .. " minute(s) ago"
+   elseif diff < 24 * 60 * 60 then
+      return math.floor(diff / (60 * 60)) .. " hour(s) ago"
+   else
+      return  math.floor(diff / (24 * 60 * 60)) .. " day(s) ago"
+   end
+end
+
 local function url_encode(str)
   if (str) then
     str = string.gsub (str, "\n", "\r\n")
@@ -144,19 +159,48 @@ local mainPage = function(req, res)
    lbqrows = table.concat(lbqrows)
 
 
-   local jobs = wait(client.hgetall, {"RESERVED:RUNNINGJOBS"})
+   local workerinfo = wait({client.hgetall, client.hgetall}, {{"RESERVED:RUNNINGJOBS"},{"RESERVED:RUNNINGTIMES"}})
 
    local wrows = {}
+   
+   local runningworkers = {}
+   local runningtimes = {}
+   local allworkers = {}
+   local workerlist = {}
 
-   for i = 1,#jobs,2 do
+   for i=1,#workerinfo[1][1],2 do
+      local workername = workerinfo[1][1][i]
+      local jobJson = workerinfo[1][1][i+1]
+      runningworkers[workername] = jobJson
+      if not allworkers[workername] then
+         table.insert(workerlist, workername)
+      end
+      allworkers[workername] = true
+   end
+
+   for i=1,#workerinfo[2][1],2 do
+      local workername = workerinfo[2][1][i]
+      local jobtime = workerinfo[2][1][i+1]
+      runningtimes[workername] = jobtime
+      if not allworkers[workername] then
+         table.insert(workerlist, workername)
+      end
+      allworkers[workername] = true
+   end
+
+   table.sort(workerlist)
+
+   for _,worker in ipairs(workerlist) do
       local row = [[
       <tr> 
       <td> ${name} </td>
-      <td> ${val} </td> 
+      <td> ${lasttime} </td> 
+      <td> ${lastjob} </td> 
       </tr>
       ]] % {
-         name = jobs[i],
-         val = jobs[i+1]
+         name = worker,
+         lasttime = gettimeago(runningtimes[worker]),
+         lastjob = runningworkers[worker] or "Waiting for job",
       }
       table.insert(wrows, row)
    end
@@ -164,12 +208,13 @@ local mainPage = function(req, res)
    wrows = table.concat(wrows)
 
 
-   local failures = wait({client.hgetall, client.hgetall}, 
-   {{"RESERVED:FAILEDJOBS"},{"RESERVED:FAILEDERROR"}})
+   local failures = wait({client.hgetall, client.hgetall, client.hgetall}, 
+   {{"RESERVED:FAILEDJOBS"},{"RESERVED:FAILEDERROR"}, {"RESERVED:FAILEDTIME"}})
 
 
    local failedJobs = {}
    local failureReasons = {}
+   local failureTimes = {}
 
    for i=1,#failures[1][1],2 do
       local jobHash = failures[1][1][i]
@@ -183,12 +228,20 @@ local mainPage = function(req, res)
       failureReasons[jobHash] = jobError
    end
 
+   for i=1,#failures[3][1],2 do
+      local jobHash = failures[3][1][i]
+      local failureTime = failures[3][1][i+1]
+      failureTimes[jobHash] = failureTime
+   end
+
+
    local frows = {}
 
    for k,v in pairs(failedJobs) do
 
       local row = [[
       <tr> 
+      <td> ${time} </td> 
       <td> ${name} </td> 
       <td> ${err} </td> 
       <td><a href="${showurl}">Show</a></td>
@@ -196,6 +249,7 @@ local mainPage = function(req, res)
       <td><a href="${clearurl}" onclick="return confirm('Are you sure?')">Clear</a></td>
       </tr>
       ]] % {
+         time = gettimeago(failureTimes[k]),
          name = k,
          err = tostring(stringx.shorten(failureReasons[k], 100, false)),
          retryurl = "/retryjob?id=" .. url_encode(k),
@@ -235,14 +289,14 @@ local mainPage = function(req, res)
    </table>
 
    <table>
-   <tr> <th>Busy Workers</th> <th>Current Job</th> </tr>
+   <tr> <th>Busy Workers</th><th>Last Seen</th><th>Current Job</th> </tr>
    ${workervals}
    </table>
 
    <a href="/clearfailed">Clear Failed Jobs </a>
 
    <table>
-   <tr> <th>Failed</th><th>Reason</th><th>Show</th><th>Retry</th><th>Clear</th> </tr>
+   <tr><th>Time</th><th>Failed</th><th>Reason</th><th>Show</th><th>Retry</th><th>Clear</th> </tr>
    ${failedvals}
    </table>
 
