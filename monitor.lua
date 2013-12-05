@@ -39,9 +39,9 @@ local function url_decode(str)
   return str
 end
 
+--                  <meta http-equiv="refresh" content="5">
 local header = [[
                <head>
-                  <meta http-equiv="refresh" content="5">
                   <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
                   <style type="text/css">
                      html,body {font-family: Helvetica;}
@@ -102,13 +102,15 @@ local mainPage = function(req, res)
       <td> ${name} </td>
       <td> ${queue} </td> 
       <td> ${hashes} </td> 
+      <td><a href="${showurl}">Show</a></td> 
       <td><a href="${clearurl}" onclick="return confirm('Are you sure?')">Clear Queue</a></td> 
       </tr>
       ]] % {
          name = key,
          queue = vals[1][1] or 0,
          hashes = vals[2][1] or 0,
-         clearurl = "/clear?queue="..key
+         showurl = "/showq?queue="..key,
+         clearurl = "/clear?queue="..key,
       }
       table.insert(qrows, row)
    end
@@ -125,6 +127,7 @@ local mainPage = function(req, res)
       <td> ${jobs} </td> 
       <td> ${busy} </td> 
       <td> ${waiting} </td> 
+      <td><a href="${showurl}">Show</a></td> 
       <td><a href="${clearurl}" onclick="return confirm('Are you sure?')">Clear Queue</a></td> 
       </tr>
       ]] % {
@@ -133,6 +136,7 @@ local mainPage = function(req, res)
          jobs = vals[2][1] or 0,
          busy = vals[3][1] or 0,
          waiting = vals[4][1] or 0,
+         showurl = "/showlbq?queue="..key,
          clearurl = "/clear?queue="..key.."&type=LB"
       }
       table.insert(lbqrows, row)
@@ -314,6 +318,211 @@ local showJob = function(req, res)
 
 end
 
+local showQ = function(req, res)
+   local _,_,queue= req.url.query:find("queue=(.*)")
+   local vals = wait({client.lrange, client.hkeys}, {{"QUEUE:" .. queue, 0, -1},{"UNIQUE:"..queue}})
+
+   local queuedjobs = vals[1][1]
+   local uniquejobs = vals[2][1]
+
+   local jobrows = {}
+
+   for _,job in ipairs(queuedjobs) do 
+      local row = [[
+      <tr> 
+      <td> ${job} </td> 
+      </tr>
+      ]] % {
+         job = job,
+      }
+      table.insert(jobrows, row)
+   end
+
+   jobrows = table.concat(jobrows)
+
+      
+   local uniquejobrows = {}
+
+
+   for _,jobhash in ipairs(uniquejobrows) do 
+      local row = [[
+      <tr> 
+      <td> ${jobhash} </td> 
+      </tr>
+      ]] % {
+         jobhash = jobhash
+      }
+
+      table.insert(uniquejobrows, row)
+   end
+
+   uniquejobrows = table.concat(uniquejobrows)
+
+   
+   -- full page:
+   local page = [[
+   <html>
+   ${header}
+   <body>
+   
+   <table>
+   <tr> <th>Jobs in the Queue</th></tr>
+   <tr> <th>Job</th> </tr>
+   ${jobrows}
+   </table>
+
+   <table>
+   <tr> <th>Unique Jobs</th></tr>
+   <tr><th>Identifier</th> </tr>
+   ${uniquejobrows}
+   </table>
+
+   </body>
+   </html>
+   ]] % {header = header, jobrows = jobrows, uniquejobrows = uniquejobrows}
+
+
+   -- html response:
+   res(page, {['Content-Type']='text/html'})
+
+end
+
+local showLBQ = function(req, res)
+   local _,_,queue= req.url.query:find("queue=(.*)")
+   local vals = wait({client.zrange, client.hgetall, client.hgetall, client.smembers}, {{"LBQUEUE:" .. queue, 0, -1, "WITHSCORES"},{"LBJOBS:" .. queue},{"LBBUSY:" .. queue},{"LBWAITING:" .. queue}})
+
+   local queuedJobs = vals[1][1]
+   local knownJobs = vals[2][1]
+   local busyJobs = vals[3][1]
+   local waitingJobs = vals[4][1]
+
+   local jobrows = {}
+
+   for i = 1,#queuedJobs,2 do 
+      local row = [[
+      <tr> 
+      <td> ${score} </td>
+      <td> ${job} </td> 
+      </tr>
+      ]] % {
+         score = queuedJobs[i+1],
+         job = queuedJobs[i],
+      }
+      table.insert(jobrows, row)
+   end
+
+   jobrows = table.concat(jobrows)
+
+      
+   local knownjobrows = {}
+
+   for i = 1,#knownJobs,2 do 
+      local row = [[
+      <tr> 
+      <td> ${hashname} </td>
+      <td> ${job} </td> 
+      </tr>
+      ]] % {
+         hashname = knownJobs[i],
+         job = knownJobs[i+1],
+      }
+      table.insert(knownjobrows, row)
+   end
+
+   knownjobrows = table.concat(knownjobrows)
+
+   local busyjobrows = {}
+
+   for i = 1,#busyJobs,2 do 
+      local row = [[
+      <tr> 
+      <td> ${workername} </td>
+      <td> ${job} </td> 
+      </tr>
+      ]] % {
+         job = busyJobs[i],
+      }
+      table.insert(busyjobrows, row)
+   end
+
+   busyjobrows = table.concat(busyjobrows)
+
+
+   local waitingjobcounts = {}
+   
+   for _,job in ipairs(waitingJobs) do
+      local x,y,jobhash = job:find('"hash":"(.-)"')
+      waitingjobcounts[jobhash] = (waitingjobcounts[jobhash] or 0 ) + 1
+   end
+   
+   local waitingjobrows = {}
+
+   for jobhash,jobcount in pairs(waitingjobcounts) do 
+      local row = [[
+      <tr> 
+      <td> ${jobhash} </td>
+      <td> ${jobcount} </td> 
+      </tr>
+      ]] % {
+         jobhash = jobhash,
+         jobcount = jobcount,
+      }
+      table.insert(waitingjobrows, row)
+   end
+
+   waitingjobrows = table.concat(waitingjobrows)
+
+
+   -- full page:
+   local page = [[
+   <html>
+   ${header}
+   <body>
+   
+   <table>
+   <tr> <th>Jobs in the Queue</th></tr>
+   <tr> <th>Score</th> 
+   <th>Job</th> 
+   </tr>
+   ${jobrows}
+   </table>
+
+   <table>
+   <tr> <th>Known Jobs</th></tr>
+   <tr><th>Identifier</th> 
+   <th>Job</th> 
+   </tr>
+   ${knownjobrows}
+   </table>
+
+   <table>
+   <tr> <th>Busy Jobs</th></tr>
+   <tr><th>Job</th> 
+   </tr>
+   ${busyjobrows}
+   </table>
+
+   <table>
+   <tr> <th>Waiting Jobs</th></tr>
+   <tr><th>Identifier</th> 
+   <th>Count</th> 
+   </tr>
+   ${waitingjobrows}
+   </table>
+
+
+
+   </body>
+   </html>
+   ]] % {header = header, jobrows = jobrows, knownjobrows = knownjobrows, busyjobrows = busyjobrows, waitingjobrows = waitingjobrows}
+
+
+   -- html response:
+   res(page, {['Content-Type']='text/html'})
+
+
+end
+
 local retryJob = function(req,res)
    local _,_,jobname = req.url.query:find("id=(.*)")
 
@@ -356,6 +565,10 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
          clearQueue(req,res)
       elseif req.url.path == "/showjob" then
          showJob(req,res)
+      elseif req.url.path == "/showq" then
+         showQ(req,res)
+      elseif req.url.path == "/showlbq" then
+         showLBQ(req,res)
       elseif req.url.path == "/retryjob" then
          retryJob(req,res)
       elseif req.url.path == "/clearjob" then
