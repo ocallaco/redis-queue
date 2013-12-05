@@ -171,7 +171,12 @@ local mainPage = function(req, res)
    for i=1,#workerinfo[1][1],2 do
       local workername = workerinfo[1][1][i]
       local jobJson = workerinfo[1][1][i+1]
-      runningworkers[workername] = jobJson
+
+      local x,y,jobqueue = jobJson:find('("queue":".-")')
+      local x,y,jobhash = jobJson:find('("hash":".-")')
+      local x,y,jobname = jobJson:find('("name":".-")')
+
+      runningworkers[workername] = jobqueue .. ", " .. jobname .. ", " .. jobhash
       if not allworkers[workername] then
          table.insert(workerlist, workername)
       end
