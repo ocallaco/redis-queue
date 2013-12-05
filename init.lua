@@ -18,8 +18,10 @@ local LBWAITING = "LBWAITING:" -- Set
 
 -- reserved 
 local RUNNING = "RESERVED:RUNNINGJOBS" -- hash
+local RUNNINGSINCE = "RESERVED:RUNNINGTIMES" -- hash
 local FAILED = "RESERVED:FAILEDJOBS" -- hash 
 local FAILED_ERROR = "RESERVED:FAILEDERROR" -- hash 
+local FAILEDTIME = "RESERVED:FAILEDTIME" -- hash 
 
 -- queue Types
 
@@ -50,12 +52,19 @@ end
 local evals = {
 
    -- clean up any previous state variables left behind by a crashed worker
-   -- i'm assuming that if a worker crashed without cleaning up it's state, then it will be in the running jobs hash
+   -- all workers that ever did a job will be represented in the runningSince hash 
+   -- (it isnt cleared on success or failure, only overwritten on new jobs
+   -- so get all workers who did work, see if they left a bad state and clean it up, then clear out their old data
+   
    newworker= function(cb)
       local script = [[
       local runningJobs = KEYS[1]
-      local failedJobs = KEYS[2]
-      local failureErrors = KEYS[3]
+      local runningSince = KEYS[2]
+      local failedJobs = KEYS[3]
+      local failureErrors = KEYS[4]
+      local failedTime = KEYS[5]
+   
+      local currenttime = ARGV[1]
 
       local clientList = redis.call('client', 'list')
       local liveWorkers = {}
@@ -70,7 +79,7 @@ local evals = {
       end
 
       local deadWorkers = {}
-      local allWorkers = redis.call('hkeys', runningJobs)
+      local allWorkers = redis.call('hkeys', runningSince)
       for i,worker in ipairs(allWorkers) do
          if not liveWorkers[worker] then
             table.insert(deadWorkers, worker)
@@ -80,9 +89,12 @@ local evals = {
       local jobsCleaned = 0
 
       if #deadWorkers > 0 then
+            
+
          local deadJobs = redis.call('hmget', runningJobs, unpack(deadWorkers))
          local newFailedJobs = {}
          local failureReasons = {}
+         local failureTimeList = {}
 
          for i,job in pairs(deadJobs) do
             if job then
@@ -106,6 +118,9 @@ local evals = {
                table.insert(failureReasons, failureHash)
                table.insert(failureReasons, "Job left behind by dead worker")
 
+               table.insert(failureTimeList, failureHash)
+               table.insert(failureTimeList, currenttime)
+
                if queuetype == "LBQUEUE" and jobHash then
                   redis.call('hdel', "LBBUSY:"..queuename, jobHash)
                elseif queuetype == "QUEUE" and jobHash then 
@@ -116,9 +131,11 @@ local evals = {
 
          
          redis.call('hdel', runningJobs, unpack(deadWorkers))
+         redis.call('hdel', runningSince, unpack(deadWorkers))
          if #newFailedJobs > 0 then
             redis.call('hmset', failedJobs, unpack(newFailedJobs))
             redis.call('hmset', failureErrors, unpack(failureReasons))
+            redis.call('hmset', failedTime, unpack(failureTimeList))
          end
 
          jobsCleaned = #deadJobs
@@ -126,7 +143,7 @@ local evals = {
 
       return jobsCleaned
       ]]
-      return script, 3, RUNNING, FAILED, FAILED_ERROR, cb
+      return script, 5, RUNNING, RUNNINGSINCE, FAILED, FAILED_ERROR, FAILEDTIME, os.time(), cb
    end,
 
    -- enqueue on a standard queue -- check for hash uniqueness so we don't put the same job on twice
@@ -172,6 +189,7 @@ local evals = {
       local uniqueness = KEYS[3]
       local failed = KEYS[4]
       local failedError = KEYS[5]
+      local failedTime = KEYS[6]
 
       local newjob = 0
 
@@ -186,9 +204,10 @@ local evals = {
          redis.call('publish', chann, jobName)
          redis.call('hdel', failed, failureHash) 
          redis.call('hdel', failedError, failureHash) 
+         redis.call('hdel', failedTime, failureHash) 
       end 
       ]] 
-      return script, 5, QUEUE .. queue, CHANNEL .. queue, UNIQUE .. queue, FAILED, FAILED_ERROR, jobJson, jobName, failureHash, jobHash, cb
+      return script, 6, QUEUE .. queue, CHANNEL .. queue, UNIQUE .. queue, FAILED, FAILED_ERROR, FAILEDTIME, jobJson, jobName, failureHash, jobHash, cb
    end,
 
 
@@ -196,14 +215,24 @@ local evals = {
    dequeue = function(queue, workername, cb)
 
       local script = [[
-      local job = redis.call('rpop', KEYS[1])
+      
+      local queue =  KEYS[1]
+      local runningJobs = KEYS[2]
+      local runningSince = KEYS[3]
+
+      local workername = ARGV[1]
+      local currenttime = ARGV[2] 
+
+      local job = redis.call('rpop', queue)
+
       if job then
-         redis.call('hset', KEYS[2], ARGV[1], job)
+         redis.call('hset', runningJobs, workername, job)
+         redis.call('hset', runningSince, workername, currenttime)
       end
       return job
       ]] 
 
-      return script, 2, QUEUE..queue, RUNNING, workername, cb
+      return script, 3, QUEUE..queue, RUNNING, RUNNINGSINCE, workername, os.time(), cb
    end,
 
    -- if crash, cleanup by moving job from runnning list to failed list
@@ -213,25 +242,29 @@ local evals = {
       local queue = ARGV[2]
       local jobhash = ARGV[3]
       local errormessage = ARGV[4]
-
+      local currenttime = ARGV[5]
 
       local runningJobs = KEYS[1]
       local failedJobs = KEYS[2]
       local failureReasons = KEYS[3]
+      local failureTimes = KEYS[4]
+
 
       local job = redis.call('hget', runningJobs, workername)
 
       local failureHash = queue .. ":" .. jobhash
       redis.call('hset', failedJobs, failureHash, job)
       redis.call('hset', failureReasons, failureHash, errormessage)
+      redis.call('hset', failureTimes, failureHash, currenttime)
 
       return redis.call('hdel', runningJobs, workername)
       ]]
 
-      return script, 3, RUNNING, FAILED, FAILED_ERROR, workername, QUEUE .. queue, jobHash, errormessage, cb
+      return script, 4, RUNNING, FAILED, FAILED_ERROR, FAILEDTIME, workername, QUEUE .. queue, jobHash, errormessage, os.time(), cb
    end,
 
    -- after successful completion, remove job from running and uniqueness hash (if necessary)
+   -- dont remove running time since we want to use that to say when the worker last had a job
    cleanup = function(queue, workername, jobHash, cb)
 
       -- job's done, take it off the running list, worker is no longer busy
@@ -305,6 +338,7 @@ local evals = {
       local waiting = KEYS[5]
       local failed = KEYS[6]
       local failedError = KEYS[7]
+      local failedTime = KEYS[8]
 
       local jobExists = redis.call('hsetnx', jobmatch, jobHash, jobJson)
 
@@ -328,9 +362,10 @@ local evals = {
       redis.call('publish', chann, jobName)
       redis.call('hdel', failed, failureHash) 
       redis.call('hdel', failedError, failureHash) 
+      redis.call('hdel', failedTime, failureHash) 
 
       ]] 
-      return  script, 7, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, FAILED, FAILED_ERROR, jobJson, jobName, jobHash, failureHash, priority, cb
+      return  script, 8, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, FAILED, FAILED_ERROR, FAILEDTIME, jobJson, jobName, jobHash, failureHash, priority, cb
 
    end,
       
@@ -345,8 +380,10 @@ local evals = {
          local busy = KEYS[3]
          local waiting = KEYS[4]
          local running = KEYS[5]
+         local runningSince = KEYS[6]
 
          local workername = ARGV[1]
+         local currenttime = ARGV[2] 
 
          local waitingJobs = redis.call('smembers', waiting)
 
@@ -391,6 +428,7 @@ local evals = {
          if topJobHash then
             topJob = redis.call('hget', jobs, topJobHash)
             redis.call('hset', running, workername, topJob)
+            redis.call('hset', runningSince, workername, currenttime)
             local xfd = redis.call('hset', busy, topJobHash, 1)
          end
 
@@ -398,7 +436,7 @@ local evals = {
 
       ]]
 
-      return script, 5, LBQUEUE .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, RUNNING, workername, cb
+      return script, 6, LBQUEUE .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, RUNNING, RUNNINGSINCE, workername, os.time(), cb
    end,
     -- this needs to be built out better 
    lbfailure = function(workername, queue, jobHash, errormessage, cb)
@@ -407,27 +445,32 @@ local evals = {
       local queue = ARGV[2]
       local jobhash = ARGV[3]
       local errormessage = ARGV[4]
+      local currenttime = ARGV[5]
 
 
       local runningJobs = KEYS[1]
       local failedJobs = KEYS[2]
       local failureReasons = KEYS[3]
+      local failureTimes = KEYS[4]
 
+      
       local job = redis.call('hget', runningJobs, workername)
 
       local failureHash = queue .. ":" .. jobhash
       redis.call('hset', failedJobs, failureHash, job)
       redis.call('hset', failureReasons, failureHash, errormessage)
+      redis.call('hset', failureTimes, failureHash, currenttime)
 
       return redis.call('hdel', runningJobs, workername)
       ]]
 
-      return script, 3, RUNNING, FAILED, FAILED_ERROR, workername, LBQUEUE .. queue, jobHash, errormessage, cb
+      return script, 4, RUNNING, FAILED, FAILED_ERROR, FAILEDTIME, workername, LBQUEUE .. queue, jobHash, errormessage, os.time(), cb
    end,
             
    lbcleanup = function(queue, workername, jobHash, cb)
 
       -- job's done, take it off the running list, worker is no longer busy
+      -- dont remove running time since we want to use that to say when the worker last had a job
 
       local script = [[
       local runningJobs = KEYS[1]

@@ -31,6 +31,7 @@ fiber(function()
                jobsSeen[args.testnumber] = true
                table.insert(jobsSeenBy[i], args.testnumber)
             end)
+            worker.queue:doneSubscribing()
          end)
          async.setTimeout(15000, function()
 
