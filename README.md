@@ -1,0 +1,6 @@
+License
+-------
+
+MIT License
+
+
