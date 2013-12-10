@@ -95,11 +95,14 @@ local mainPage = function(req, res)
 
    local queues = {}
    local lbqueues = {}
+   local delqueues = {}
 
    -- identify keys
    for queue,qType in pairs(qconfig) do
       if qType == "LBQUEUE" then
          table.insert(lbqueues, queue)
+      elseif qType == "DELQUEUE" then
+         table.insert(delqueues, queue)
       else
          table.insert(queues, queue)
       end
@@ -108,6 +111,7 @@ local mainPage = function(req, res)
    -- format table:
    local qrows = {}
    local lbqrows = {}
+   local delqrows = {}
 
 
    for i,key in ipairs(queues) do 
@@ -157,6 +161,29 @@ local mainPage = function(req, res)
       table.insert(lbqrows, row)
    end
    lbqrows = table.concat(lbqrows)
+
+
+   for i,key in ipairs(delqueues) do 
+      local vals = wait({client.zcard, client.hlen}, {{"DELQUEUE:" .. key},{"DELJOBS:" .. key}})
+
+      local row = [[
+      <tr> 
+      <td> ${name} </td>
+      <td> ${queue} </td> 
+      <td> ${jobs} </td> 
+      <td><a href="${showurl}">Show</a></td> 
+      <td><a href="${clearurl}" onclick="return confirm('Are you sure?')">Clear Queue</a></td> 
+      </tr>
+      ]] % {
+         name = key,
+         queue = vals[1][1] or 0,
+         jobs = vals[2][1] or 0,
+         showurl = "/showdelq?queue="..key,
+         clearurl = "/clear?queue="..key.."&type=DEL"
+      }
+      table.insert(delqrows, row)
+   end
+   delqrows = table.concat(delqrows)
 
 
    local workerinfo = wait({client.hgetall, client.hgetall}, {{"RESERVED:RUNNINGJOBS"},{"RESERVED:RUNNINGTIMES"}})
@@ -294,6 +321,14 @@ local mainPage = function(req, res)
    </table>
 
    <table>
+   <tr> <th>Delayed Queues</th> 
+   <th>Jobs Queued</th> 
+   <th>Jobs Known</th> 
+   </tr>
+   ${delquevals}
+   </table>
+
+   <table>
    <tr> <th>Busy Workers</th><th>Last Seen</th><th>Current Job</th> </tr>
    ${workervals}
    </table>
@@ -307,7 +342,7 @@ local mainPage = function(req, res)
 
    </body>
    </html>
-   ]] % {header = header, quevals = qrows, lbquevals = lbqrows, workervals = wrows, failedvals = frows}
+   ]] % {header = header, quevals = qrows, lbquevals = lbqrows, delquevals = delqrows, workervals = wrows, failedvals = frows}
 
    -- html response:
    res(page, {['Content-Type']='text/html'})
@@ -329,6 +364,9 @@ local clearQueue = function(req,res)
       client.del("LBJOBS:"..queue)
       client.del("LBBUSY:"..queue)
       client.del("LBWAITING:"..queue)
+   elseif qtype == "DEL" then
+      client.del("DELQUEUE:"..queue)
+      client.del("DELJOBS:"..queue)
    else 
       client.del("QUEUE:"..queue)
       client.del("UNIQUE:"..queue)
@@ -582,6 +620,83 @@ local showLBQ = function(req, res)
 
 end
 
+local showDELQ = function(req, res)
+   local _,_,queue= req.url.query:find("queue=(.*)")
+   local vals = wait({client.zrange, client.hgetall}, {{"DELQUEUE:" .. queue, 0, -1, "WITHSCORES"},{"DELJOBS:" .. queue}})
+
+   local queuedJobs = vals[1][1]
+   local knownJobs = vals[2][1]
+
+   local jobrows = {}
+
+   for i = 1,#queuedJobs,2 do 
+      local row = [[
+      <tr> 
+      <td> ${score} </td>
+      <td> ${job} </td> 
+      </tr>
+      ]] % {
+         score = tostring(Date(tonumber(queuedJobs[i+1]))),
+         job = queuedJobs[i],
+      }
+      table.insert(jobrows, row)
+   end
+
+   jobrows = table.concat(jobrows)
+
+      
+   local knownjobrows = {}
+
+   for i = 1,#knownJobs,2 do 
+      local row = [[
+      <tr> 
+      <td> ${hashname} </td>
+      <td> ${job} </td> 
+      </tr>
+      ]] % {
+         hashname = knownJobs[i],
+         job = knownJobs[i+1],
+      }
+      table.insert(knownjobrows, row)
+   end
+
+   knownjobrows = table.concat(knownjobrows)
+
+
+   -- full page:
+   local page = [[
+   <html>
+   ${header}
+   <body>
+   
+   <table>
+   <tr> <th>Jobs in the Queue</th></tr>
+   <tr> <th>Scheduled</th> 
+   <th>Job</th> 
+   </tr>
+   ${jobrows}
+   </table>
+
+   <table>
+   <tr> <th>Known Jobs</th></tr>
+   <tr><th>Identifier</th> 
+   <th>Job</th> 
+   </tr>
+   ${knownjobrows}
+   </table>
+
+   </body>
+   </html>
+   ]] % {header = header, jobrows = jobrows, knownjobrows = knownjobrows}
+
+
+   -- html response:
+   res(page, {['Content-Type']='text/html'})
+
+
+end
+
+
 local retryJob = function(req,res)
    local _,_,jobname = req.url.query:find("id=(.*)")
 
@@ -628,6 +743,8 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
          showQ(req,res)
       elseif req.url.path == "/showlbq" then
          showLBQ(req,res)
+      elseif req.url.path == "/showdelq" then
+         showDELQ(req,res)
       elseif req.url.path == "/retryjob" then
          retryJob(req,res)
       elseif req.url.path == "/clearjob" then

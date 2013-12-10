@@ -3,6 +3,7 @@ local QCONFIGCHANNEL = "RESERVEDCHANNEL:QCONFIG"
 
 local STANDARD_QUEUE = "QUEUE"
 local LOADBAL_QUEUE = "LBQUEUE"
+local DELAYED_QUEUE = "DELQUEUE"
 
 RedisQueueConfig = {meta = {}}
 

@@ -16,6 +16,11 @@ local LBJOBS = "LBJOBS:" -- Hash jobHash => jobJson
 local LBBUSY = "LBBUSY:" -- Hash jobHash => workername
 local LBWAITING = "LBWAITING:" -- Set
 
+-- delayed queue (for scheduled execution)
+local DELQUEUE = "DELQUEUE:" -- Zset job hash & execution time
+local DELCHANNEL = "DELCHANNEL:" --  notify workers of new jobs on channel
+local DELJOBS = "DELJOBS:"  -- Hash jobHash => jobJson
+
 -- reserved 
 local RUNNING = "RESERVED:RUNNINGJOBS" -- hash
 local RUNNINGSINCE = "RESERVED:RUNNINGTIMES" -- hash
@@ -23,10 +28,13 @@ local FAILED = "RESERVED:FAILEDJOBS" -- hash
 local FAILED_ERROR = "RESERVED:FAILEDERROR" -- hash 
 local FAILEDTIME = "RESERVED:FAILEDTIME" -- hash 
 
+local WAITSTRING = "RESERVED_MESSAGE_WAIT" -- indicates that delayed queue has no jobs ready
+
 -- queue Types
 
 local TYPEQUEUE = "queue"
 local TYPELBQUEUE = "lbqueue"
+local TYPEDELQUEUE = "delqueue"
 
 -- other constants
 local INCREMENT = "INC"
@@ -55,7 +63,7 @@ local evals = {
    -- all workers that ever did a job will be represented in the runningSince hash 
    -- (it isnt cleared on success or failure, only overwritten on new jobs
    -- so get all workers who did work, see if they left a bad state and clean it up, then clear out their old data
-   
+  
    newworker= function(cb)
       local script = [[
       local runningJobs = KEYS[1]
@@ -501,6 +509,146 @@ local evals = {
 
       return script, 4, RUNNING, LBBUSY .. queue, LBWAITING .. queue, LBJOBS .. queue, workername, jobHash, cb
    end,
+     
+   -- like an lb queue, but without worrying about collisions -- the jobhash is the scheduled time and the job's unique hash
+   -- to allow multiple identical jobs to be scheduled
+   delenqueue = function(queue, jobJson, jobName, jobHash, scheduletime, cb)
+      local script = [[
+      local jobJson = ARGV[1]
+      local jobName = ARGV[2]
+      local jobHash = ARGV[3]
+      local scheduletime = ARGV[4]
+
+      jobHash = scheduletime .. "|" .. jobHash
+
+      local queue = KEYS[1]
+      local chann = KEYS[2]
+      local jobmatch = KEYS[3]
+
+      local jobExists = redis.call('hsetnx', jobmatch, jobHash, jobJson)
+
+      if jobExists == 1 then
+         redis.call('zadd', queue, tonumber(scheduletime), jobHash)
+         redis.call('publish', chann, scheduletime)
+      end
+      ]] 
+      return  script, 3, DELQUEUE .. queue, DELCHANNEL .. queue, DELJOBS .. queue, jobJson, jobName, jobHash, scheduletime, cb
+
+   end,
+
+   delreenqueue = function(queue, jobJson, jobName, jobHash, failureHash, cb)
+      local script = [[
+      local jobJson = ARGV[1] 
+      local jobHash = ARGV[2] 
+      local failureHash = ARGV[3] 
+      local currenttime = ARGV[4]
+
+      local queue = KEYS[1] 
+      local chann = KEYS[2] 
+      local jobmatch = KEYS[3] 
+      local failed = KEYS[4] 
+      local failedError = KEYS[5] 
+      local failedTime = KEYS[6] 
+
+      jobHash = currenttime .. "|" .. jobHash 
+
+      redis.call('zadd', queue, currenttime, jobHash)
+      redis.call('hset', jobmatch, jobHash, jobJson)
+
+      redis.call('publish', chann, currenttime)
+      redis.call('hdel', failed, failureHash) 
+      redis.call('hdel', failedError, failureHash) 
+      redis.call('hdel', failedTime, failureHash) 
+
+      ]] 
+      return  script, 6, DELQUEUE .. queue, DELCHANNEL .. queue, DELJOBS .. queue, FAILED, FAILED_ERROR, FAILEDTIME, jobJson, jobHash, failureHash, os.time(), cb
+
+   end,
+
+   -- dequeue any job that's ready to run, otherwise, return the time of the next job to run (or nil if there are none scheduled)
+   deldequeue = function(queue, workername, cb)
+      script = [[
+      local queue = KEYS[1]
+      local jobs = KEYS[2]
+      local running = KEYS[3]
+      local runningSince = KEYS[4]
+
+      local workername = ARGV[1]
+      local waitstring = ARGV[2] 
+      local currenttime = ARGV[3] 
+
+      local jobswaiting = redis.call('ZRANGE', queue, 0, 1, "WITHSCORES")
+      if #jobswaiting > 0 and jobswaiting[2] <= currenttime then
+         
+         local topJobHash = jobswaiting[1]
+         redis.call('zremrangebyrank', queue, 0, 0)
+
+         local topJob = redis.call('hget', jobs, topJobHash)
+         redis.call('hdel', jobs, topJobHash)
+         redis.call('hset', running, workername, topJob)
+         redis.call('hset', runningSince, workername, currenttime)
+
+         return {topJob, jobswaiting[4]}
+      else
+         return {waitstring, jobswaiting[2]}
+      end
+
+      ]]
+
+      return script, 4, DELQUEUE .. queue, DELJOBS .. queue, RUNNING, RUNNINGSINCE, workername, WAITSTRING, os.time(), cb
+   end,
+
+       -- this needs to be built out better 
+   delfailure = function(workername, queue, jobHash, errormessage, cb)
+      local script = [[
+      local workername = ARGV[1]
+      local queue = ARGV[2]
+      local jobhash = ARGV[3]
+      local errormessage = ARGV[4]
+      local currenttime = ARGV[5]
+
+
+      local runningJobs = KEYS[1]
+      local failedJobs = KEYS[2]
+      local failureReasons = KEYS[3]
+      local failureTimes = KEYS[4]
+
+      
+      local job = redis.call('hget', runningJobs, workername)
+
+      local failureHash = queue .. ":" .. jobhash
+      redis.call('hset', failedJobs, failureHash, job)
+      redis.call('hset', failureReasons, failureHash, errormessage)
+      redis.call('hset', failureTimes, failureHash, currenttime)
+
+      return redis.call('hdel', runningJobs, workername)
+      ]]
+
+      return script, 4, RUNNING, FAILED, FAILED_ERROR, FAILEDTIME, workername, DELQUEUE .. queue, jobHash, errormessage, os.time(), cb
+   end,
+
+   delcleanup = function(queue, workername, jobHash, cb)
+
+      -- job's done, take it off the running list, worker is no longer busy
+      -- peek at head of the queue to tell worker when to schedule next timeout for
+
+      local script = [[
+      local queue = KEYS[1]
+      local runningJobs = KEYS[2]
+
+      local workername = ARGV[1]
+      local jobHash = ARGV[2]
+
+      redis.call('hdel', runningJobs, workername)
+
+      local nextjob = redis.call('zrange', queue, 0,0, 'WITHSCORES')
+      return nextjob[2]
+
+      ]]
+
+      return script, 2, DELQUEUE .. queue, RUNNING, workername, jobHash, cb
+   end,
+
 }
 
 
@@ -575,15 +723,51 @@ function RedisQueue:lbenqueue(queue, jobName, argtable, jobHash, priority, cb)
    self.redis.eval(evals.lbenqueue(queue, jobJson, jobName, jobHash, priority, cb))
 end
 
+function RedisQueue:delenqueue(queue, jobName, argtable, jobHash, timestamp, cb)
+   
+   checkArgs(argtable)
+
+   local qType = self.config:getqueuetype(queue)
+
+   if qType ~= "DELQUEUE" then
+      error("WRONG TYPE OF QUEUE")
+   end
+
+   local job = { queue = DELQUEUE .. queue, name = jobName, args = argtable}
+
+   -- job.hash must be a string for dequeue logic
+   if jobHash then
+      job.hash = jobName .. jobHash
+   else
+      error("a hash value is require for delayed queue")
+   end
+      
+   jobHash = job.hash
+
+   if type(timestamp) == "function" then
+      cb = timestamp
+      timestamp = os.time()
+   else
+      timestamp = timestamp or os.time()
+      cb = cb or function(res) return end
+   end
+
+   local jobJson = json.encode(job)
+   self.redis.eval(evals.delenqueue(queue, jobJson, jobName, jobHash, timestamp, cb))
+end
+
 function RedisQueue:reenqueue(failureId, jobJson, cb)
    local _,_,queueArg = jobJson:find('"queue":"(.-)"')
    local _,_,qType,queue = queueArg:find('(.*):(.*)')
 
    local _,_,jobHash = jobJson:find('"hash":"(.-)"')
    local _,_,jobName = jobJson:find('"name":"(.-)"')
+
    if qType == "LBQUEUE" then
       -- we use increment as the retry because you want it to run immediately, presumably.
       self.redis.eval(evals.lbreenqueue(queue, jobJson, jobName, jobHash, failureId, INCREMENT, cb))
+   elseif qType == "DELQUEUE" then
+      self.redis.eval(evals.delreenqueue(queue, jobJson, jobName, jobHash, failureId,cb))
    else
       self.redis.eval(evals.reenqueue(queue, jobJson, jobName, failureId, jobHash, cb))
    end
@@ -623,55 +807,73 @@ function RedisQueue:dequeueAndRun(queue, queueType)
       dequeueFunct = evals.lbdequeue
       failureFunct = evals.lbfailure
       cleanupFunct = evals.lbcleanup
+   elseif queueType == TYPEDELQUEUE then
+      dequeueFunct = evals.deldequeue
+      failureFunct = evals.delfailure
+      cleanupFunct = evals.delcleanup
    end
 
-   self.redis.eval(dequeueFunct(queue, self.workername, function(res)
+   self.redis.eval(dequeueFunct(queue, self.workername, function(response)
       async.fiber(function()
-         if res then
+         if response then
+
+            local res = response
 
             --print(pretty.write(res))
-            if type(res) == "table" then
-               res = res[1]
-            end
 
-            res = json.decode(res)
-
-
-            -- run the function associated with this job
-            self.state = "Running:" .. res.name
-
-            -- run it in a pcall
-            xpcall(function()
-               self.jobs[res.name](res.args)
-            end,
-               function()
-                  err = debug.traceback()
-                  print(err) 
-                  local failureHash
-                  if res.hash == "0" then
-                     failureHash = res.name .. ":" .. json.encode(res.args)
-                  else
-                     failureHash = res.hash
-                  end
-
-                  self.redis.eval(failureFunct(self.workername, queue, failureHash, err, function(res)
-                     print("ERROR ON JOB " .. err )
-                     print("ATTEMPTED CLEANUP: REDIS RESPONSE " .. res)
-                  end))      
+            if type(response) == "table" then
+               res = response[1]
+               -- in delayed queue the second response value is the timestamp of the next job
+               -- not sure how timeouts work in fiber though, so i'm just telling it to repoll the queue
+               if queueType == TYPEDELQUEUE then
+                  -- delayed queue doesn't need to use
+                  self.queuesWaiting[queue] = false
+                  -- set the next timeout if necessary
+                  local nexttimeout = response[2]
+                  self:setJobTimeout(queue, nexttimeout)
                end
-            )
+            end
 
-            -- if not ok, the pcall crashed -- report the error...
-            if not ok then 
+            if queueType ~= TYPEDELQUEUE or res ~= WAITSTRING then
+               res = json.decode(res)
+
+
+               -- run the function associated with this job
+               self.state = "Running:" .. res.name
+
+               -- run it in a pcall
+
+               xpcall(function()
+                  self.jobs[res.name](res.args)
+               end,
+                  function()
+                     err = debug.traceback()
+                     print(err) 
+                     local failureHash
+                     if res.hash == "0" then
+                        failureHash = res.name .. ":" .. json.encode(res.args)
+                     else
+                        failureHash = res.hash
+                     end
+
+                     self.redis.eval(failureFunct(self.workername, queue, failureHash, err, function(res)
+                        print("ERROR ON JOB " .. err )
+                        print("ATTEMPTED CLEANUP: REDIS RESPONSE " .. res)
+                     end))      
+                  end
+               )
+
+               -- call the custom cleanup code for this type of queue
+               self.redis.eval(cleanupFunct(queue, self.workername, res.hash, function(response)
+                  if queueType == TYPEDELQUEUE and response then
+                     local nexttimeout = response
+                     self:setJobTimeout(queue, nexttimestamp)
+                  end
+               end))
 
             end
-            
-            -- call the custom cleanup code for this type of queue
-            self.redis.eval(cleanupFunct(queue, self.workername, res.hash, function(response)
-            end))
-
-            self.busy = false
             self.state = "Ready"
+            self.busy = false
          else
             -- if we take a nil message off the queue, there's nothing left to process on that queue
             self.state = "Ready"
@@ -717,6 +919,45 @@ function RedisQueue:subscribeLBJob(queue, jobname, cb)
          self:dequeueAndRun(queue, TYPELBQUEUE)
       end)
       self.subscribedQueues[queue] = TYPELBQUEUE
+   end
+
+end
+
+function RedisQueue:subscribeDELJob(queue, jobname, cb)
+
+   if self.jobs[jobname] or self.subscribedQueues[queue] then
+      -- don't need to resubscribe, just change the callback
+      self.jobs[jobname] = cb 
+      self.subscribedQueues[queue] = TYPEDELQUEUE
+   else
+      self.jobs[jobname] = cb 
+      self.subscriber.subscribe(DELCHANNEL .. queue, function(message)
+
+         local nexttimestamp = tonumber(message[3])
+         self:setJobTimeout(queue, nexttimestamp)
+      end)
+      self.subscribedQueues[queue] = TYPEDELQUEUE
+   end
+
+end
+
+function RedisQueue:setJobTimeout(queue, nexttimestamp, cb)
+   if nexttimestamp and (self.nexttimestamp == nil or self.nexttimestamp > nexttimestamp) then
+      if self.nextjobtimeout then
+         self.nextjobtimeout:clear()
+      end
+
+      self.nexttimestamp = nexttimestamp
+
+      local now = os.time()
+
+      --want a minimum timeout of 1 second in case of race condition where scheduling machine is 1s faster than worker
+      self.nextjobtimeout = async.setTimeout(math.max(nexttimestamp - os.time(), 1) * 1000, function()
+         local ts = os.time()
+         self.nexttimestamp = nil
+         self.nextjobtimeout = nil
+         self:dequeueAndRun(queue, TYPEDELQUEUE)
+      end)
    end
 
 end
