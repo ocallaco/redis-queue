@@ -811,9 +811,25 @@ function RedisQueue:dequeueAndRun(queue, queueType)
       dequeueFunct = evals.deldequeue
       failureFunct = evals.delfailure
       cleanupFunct = evals.delcleanup
+      -- delayed queue only sets this true when it's verified that there's another job ready
+      self.queuesWaiting[queue] = false
    end
 
    self.redis.eval(dequeueFunct(queue, self.workername, function(response)
+      
+      -- in delayed queue the second response value is the timestamp of the next job
+      -- setting this outside the fiber since there was a segfault when it was in the fiber
+      if queueType == TYPEDELQUEUE then
+         -- set the next timeout if necessary
+         local nexttimeout = response[2] and tonumber(response[2])
+         if nexttimeout and nexttimeout <= os.time() then
+            -- no need to wait for a timeout
+            self.queuesWaiting[queue] = true
+         else
+            self:setJobTimeout(queue, nexttimeout)
+         end
+      end
+
       async.fiber(function()
          if response then
 
@@ -823,15 +839,7 @@ function RedisQueue:dequeueAndRun(queue, queueType)
 
             if type(response) == "table" then
                res = response[1]
-               -- in delayed queue the second response value is the timestamp of the next job
-               -- not sure how timeouts work in fiber though, so i'm just telling it to repoll the queue
-               if queueType == TYPEDELQUEUE then
-                  -- delayed queue doesn't need to use
-                  self.queuesWaiting[queue] = false
-                  -- set the next timeout if necessary
-                  local nexttimeout = response[2]
-                  self:setJobTimeout(queue, nexttimeout)
-               end
+
             end
 
             if queueType ~= TYPEDELQUEUE or res ~= WAITSTRING then
@@ -934,7 +942,14 @@ function RedisQueue:subscribeDELJob(queue, jobname, cb)
       self.subscriber.subscribe(DELCHANNEL .. queue, function(message)
 
          local nexttimestamp = tonumber(message[3])
-         self:setJobTimeout(queue, nexttimestamp)
+         if nexttimestamp <= os.time() then
+            --shortcut to execution
+            self.nexttimestamp = nil
+            self.nextjobtimeout = nil
+            self:dequeueAndRun(queue, TYPEDELQUEUE)
+         else
+            self:setJobTimeout(queue, nexttimestamp)
+         end
       end)
       self.subscribedQueues[queue] = TYPEDELQUEUE
    end
