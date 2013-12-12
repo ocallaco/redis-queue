@@ -352,6 +352,7 @@ end
 local clearfailed = function(res)
    client.del("RESERVED:FAILEDJOBS")
    client.del("RESERVED:FAILEDERROR")
+   client.del("RESERVED:FAILEDTIME")
    res("failed jobs cleared", {['Content-Type']='text/html'})
 end
 
