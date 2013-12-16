@@ -855,7 +855,7 @@ function RedisQueue:dequeueAndRun(queue, queueType)
                   self.jobs[res.name](res.args)
                end,
                   function(er)
-                     err = debug.traceback(er)
+                     local err = debug.traceback(er)
                      print(err) 
                      local failureHash
                      if res.hash == "0" then
