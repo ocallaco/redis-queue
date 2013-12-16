@@ -854,8 +854,8 @@ function RedisQueue:dequeueAndRun(queue, queueType)
                xpcall(function()
                   self.jobs[res.name](res.args)
                end,
-                  function()
-                     err = debug.traceback()
+                  function(er)
+                     err = debug.traceback(er)
                      print(err) 
                      local failureHash
                      if res.hash == "0" then
