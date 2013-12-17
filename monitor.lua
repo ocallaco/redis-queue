@@ -54,9 +54,9 @@ local function url_decode(str)
   return str
 end
 
---                  <meta http-equiv="refresh" content="5">
 local header = [[
                <head>
+                  <meta http-equiv="refresh" content="1">
                   <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
                   <style type="text/css">
                      html,body {font-family: Helvetica;}
