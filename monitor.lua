@@ -54,10 +54,11 @@ local function url_decode(str)
   return str
 end
 
+--<meta http-equiv="refresh" content="1">
+
 local header = [[
-               <head>
-                  <meta http-equiv="refresh" content="1">
-                  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+               <head>   
+               <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
                   <style type="text/css">
                      html,body {font-family: Helvetica;}
                      h1 {color:#22a;}
@@ -239,33 +240,35 @@ local mainPage = function(req, res)
 
    wrows = table.concat(wrows)
 
+   local failedTimes = wait(client.zrange, {"RESERVED:FAILEDTIME", 0, 19, "WITHSCORES"})
 
-   local failures = wait({client.hgetall, client.hgetall, client.hgetall}, 
-   {{"RESERVED:FAILEDJOBS"},{"RESERVED:FAILEDERROR"}, {"RESERVED:FAILEDTIME"}})
-
-
+   local failedHashes = {}
    local failedJobs = {}
    local failureReasons = {}
    local failureTimes = {}
 
-   for i=1,#failures[1][1],2 do
-      local jobHash = failures[1][1][i]
+
+   for i=1,#failedTimes,2 do
+      table.insert(failedHashes, failedTimes[i])
+      failureTimes[failedTimes[i]] = 0 - failedTimes[i + 1]
+   end
+
+   local failures = wait({client.hmget, client.hmget}, 
+      {{"RESERVED:FAILEDJOBS", unpack(failedHashes)},{"RESERVED:FAILEDERROR", unpack(failedHashes)}})
+
+
+
+   for i=1,#failures[1][1] do
+      local jobHash = failedHashes[i]
       local jobJson = failures[1][1][i+1]
       failedJobs[jobHash] = jobJson
    end
 
-   for i=1,#failures[2][1],2 do
-      local jobHash = failures[2][1][i]
+   for i=1,#failures[2][1] do
+      local jobHash = failedHashes[i]
       local jobError = failures[2][1][i+1]
       failureReasons[jobHash] = jobError
    end
-
-   for i=1,#failures[3][1],2 do
-      local jobHash = failures[3][1][i]
-      local failureTime = failures[3][1][i+1]
-      failureTimes[jobHash] = failureTime
-   end
-
 
    local frows = {}
 
@@ -718,7 +721,7 @@ local clearFailedJob = function(req,res)
 
    local args = wait(client.hget, {"RESERVED:FAILEDJOBS", jobname})
 
-   wait({client.hdel, client.hdel}, {{"RESERVED:FAILEDJOBS", jobname},{"RESERVED:FAILEDERROR", jobname}})
+   wait({client.hdel, client.hdel, client.zrem}, {{"RESERVED:FAILEDJOBS", jobname},{"RESERVED:FAILEDERROR", jobname}, {"RESERVED:FAILEDTIME", jobname}})
 
    res("OK ".. jobname .." cleared", {['Content-Type']='text/html'})
 

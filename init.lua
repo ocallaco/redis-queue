@@ -26,7 +26,7 @@ local RUNNING = "RESERVED:RUNNINGJOBS" -- hash
 local RUNNINGSINCE = "RESERVED:RUNNINGTIMES" -- hash
 local FAILED = "RESERVED:FAILEDJOBS" -- hash 
 local FAILED_ERROR = "RESERVED:FAILEDERROR" -- hash 
-local FAILEDTIME = "RESERVED:FAILEDTIME" -- hash 
+local FAILEDTIME = "RESERVED:FAILEDTIME" -- sorted set
 
 local WAITSTRING = "RESERVED_MESSAGE_WAIT" -- indicates that delayed queue has no jobs ready
 
@@ -126,8 +126,8 @@ local evals = {
                table.insert(failureReasons, failureHash)
                table.insert(failureReasons, "Job left behind by dead worker")
 
+               table.insert(failureTimeList, 0 - currenttime)
                table.insert(failureTimeList, failureHash)
-               table.insert(failureTimeList, currenttime)
 
                if queuetype == "LBQUEUE" and jobHash then
                   redis.call('hdel', "LBBUSY:"..queuename, jobHash)
@@ -143,7 +143,7 @@ local evals = {
          if #newFailedJobs > 0 then
             redis.call('hmset', failedJobs, unpack(newFailedJobs))
             redis.call('hmset', failureErrors, unpack(failureReasons))
-            redis.call('hmset', failedTime, unpack(failureTimeList))
+            redis.call('zadd', failedTime, unpack(failureTimeList))
          end
 
          jobsCleaned = #deadJobs
@@ -212,7 +212,7 @@ local evals = {
          redis.call('publish', chann, jobName)
          redis.call('hdel', failed, failureHash) 
          redis.call('hdel', failedError, failureHash) 
-         redis.call('hdel', failedTime, failureHash) 
+         redis.call('zrem', failedTime, failureHash) 
       end 
       ]] 
       return script, 6, QUEUE .. queue, CHANNEL .. queue, UNIQUE .. queue, FAILED, FAILED_ERROR, FAILEDTIME, jobJson, jobName, failureHash, jobHash, cb
@@ -263,7 +263,7 @@ local evals = {
       local failureHash = queue .. ":" .. jobhash
       redis.call('hset', failedJobs, failureHash, job)
       redis.call('hset', failureReasons, failureHash, errormessage)
-      redis.call('hset', failureTimes, failureHash, currenttime)
+      redis.call('zadd', failureTimes, 0 - currenttime, failureHash)
 
       return redis.call('hdel', runningJobs, workername)
       ]]
@@ -370,7 +370,7 @@ local evals = {
       redis.call('publish', chann, jobName)
       redis.call('hdel', failed, failureHash) 
       redis.call('hdel', failedError, failureHash) 
-      redis.call('hdel', failedTime, failureHash) 
+      redis.call('zrem', failedTime, failureHash) 
 
       ]] 
       return  script, 8, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, FAILED, FAILED_ERROR, FAILEDTIME, jobJson, jobName, jobHash, failureHash, priority, cb
@@ -467,7 +467,7 @@ local evals = {
       local failureHash = queue .. ":" .. jobhash
       redis.call('hset', failedJobs, failureHash, job)
       redis.call('hset', failureReasons, failureHash, errormessage)
-      redis.call('hset', failureTimes, failureHash, currenttime)
+      redis.call('zadd', failureTimes, 0 - currenttime, failureHash)
 
       return redis.call('hdel', runningJobs, workername)
       ]]
@@ -558,7 +558,7 @@ local evals = {
       redis.call('publish', chann, currenttime)
       redis.call('hdel', failed, failureHash) 
       redis.call('hdel', failedError, failureHash) 
-      redis.call('hdel', failedTime, failureHash) 
+      redis.call('zrem', failedTime, failureHash) 
 
       ]] 
       return  script, 6, DELQUEUE .. queue, DELCHANNEL .. queue, DELJOBS .. queue, FAILED, FAILED_ERROR, FAILEDTIME, jobJson, jobHash, failureHash, os.time(), cb
@@ -619,7 +619,7 @@ local evals = {
       local failureHash = queue .. ":" .. jobhash
       redis.call('hset', failedJobs, failureHash, job)
       redis.call('hset', failureReasons, failureHash, errormessage)
-      redis.call('hset', failureTimes, failureHash, currenttime)
+      redis.call('zadd', failureTimes, 0 - currenttime, failureHash)
 
       return redis.call('hdel', runningJobs, workername)
       ]]
@@ -866,7 +866,8 @@ function RedisQueue:dequeueAndRun(queue, queueType)
 
                      self.redis.eval(failureFunct(self.workername, queue, failureHash, err, function(res)
                         print("ERROR ON JOB " .. err )
-                        print("ATTEMPTED CLEANUP: REDIS RESPONSE " .. res)
+                        print("ATTEMPTED CLEANUP: REDIS RESPONSE ")
+                        print(res)
                      end))      
                   end
                )
