@@ -36,6 +36,10 @@ local TYPEQUEUE = "queue"
 local TYPELBQUEUE = "lbqueue"
 local TYPEDELQUEUE = "delqueue"
 
+-- Job Functions
+local JOBFAILURE = "FAILURE:"
+local JOBSUCCESS = "SUCCESS:"
+
 -- other constants
 local INCREMENT = "INC"
 
@@ -839,7 +843,6 @@ function RedisQueue:dequeueAndRun(queue, queueType)
 
             if type(response) == "table" then
                res = response[1]
-
             end
 
             if queueType ~= TYPEDELQUEUE or res ~= WAITSTRING then
@@ -1013,6 +1016,58 @@ function RedisQueue:registerWorker(redisDetails, cb)
 
             if cb then
                cb()
+            end
+         end)
+      end)
+   end))
+end
+
+function RedisQueue:registerFullWorker(redisDetails, workerDescription)
+   -- set the queuesWaiting table so we don't miss messages
+   self.queuesWaiting = {}
+   self.subscribedQueues = {}
+
+   -- set worker state so we can tell where it's hung up if it's hanging
+   self.workerstate = "idle"
+
+   -- get ip and port for redis client, append hi-res time for unique name
+
+   local name = self.redis.sockname.address .. ":" .. self.redis.sockname.port .. ":" .. async.hrtime()*10000
+
+   -- do cleanup in case dead workers are locking the queues
+   self.redis.eval(evals.newworker(function(res) 
+      self.redis.client('SETNAME', name, function(res)
+         self.workername = name
+         -- we need a separate client for handling subscriptions
+
+         redisasync.connect(redisDetails, function(subclient)
+
+            self.subscriber = subclient
+            self.subscriber.client('SETNAME', "SUB:" .. name, function(res) end)
+
+            local queue = workerDescription.queue
+            local queueType = workerDescription.queueType
+
+            for name,job in pairs(workerDescription.jobs) do
+               async.fiber(function()
+                  job.prepare = job.prepare or function() end
+
+                  wait(job.prepare, {})
+
+                  if queueType == TYPEQUEUE then
+                     self:subscribeJob(queue, name, job.run)
+                     self:subscribeJob(queue, JOBFAILURE .. name, job.fail)
+                     self:subscribeJob(queue, JOBSUCCESS .. name, job.success)
+                  elseif queueType == TYPELBQUEUE then
+                     self:subscribeLBJob(queue, name, job.run)
+                     self:subscribeLBJob(queue, JOBFAILURE .. name, job.fail)
+                     self:subscribeLBJob(queue, JOBSUCCESS .. name, job.success)
+                  elseif queueType == TYPEDELQUEUE then
+                     self:subscribeDELJob(queue, name, job.run)
+                     self:subscribeDELJob(queue, JOBFAILURE .. name, job.fail)
+                     self:subscribeDELJob(queue, JOBSUCCESS .. name, job.success)
+                  end
+               end)
             end
          end)
       end)
