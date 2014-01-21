@@ -1,5 +1,6 @@
 local async = require 'async'
 local json = require 'cjson'
+local common = require 'redis-queue.common'
 
 -- delayed queue (for scheduled execution)
 local DELQUEUE = "DELQUEUE:" -- Zset job hash & execution time
@@ -60,7 +61,7 @@ local evals = {
       redis.call('zrem', failedTime, failureHash) 
 
       ]] 
-      return  script, 6, DELQUEUE .. queue, DELCHANNEL .. queue, DELJOBS .. queue, FAILED, FAILED_ERROR, FAILEDTIME, jobJson, jobHash, failureHash, os.time(), cb
+      return  script, 6, DELQUEUE .. queue, DELCHANNEL .. queue, DELJOBS .. queue, common.FAILED, common.FAILED_ERROR, common.FAILEDTIME, jobJson, jobHash, failureHash, os.time(), cb
 
    end,
 
@@ -94,7 +95,7 @@ local evals = {
 
       ]]
 
-      return script, 4, DELQUEUE .. queue, DELJOBS .. queue, RUNNING, RUNNINGSINCE, workername, WAITSTRING, os.time(), cb
+      return script, 4, DELQUEUE .. queue, DELJOBS .. queue, common.RUNNING, common.RUNNINGSINCE, workername, WAITSTRING, os.time(), cb
    end,
 
        -- this needs to be built out better 
@@ -123,7 +124,7 @@ local evals = {
       return redis.call('hdel', runningJobs, workername)
       ]]
 
-      return script, 4, RUNNING, FAILED, FAILED_ERROR, FAILEDTIME, workername, DELQUEUE .. queue, jobHash, errormessage, os.time(), cb
+      return script, 4, common.RUNNING, common.FAILED, common.FAILED_ERROR, common.FAILEDTIME, workername, DELQUEUE .. queue, jobHash, errormessage, os.time(), cb
    end,
 
    delcleanup = function(queue, workername, jobHash, cb)
@@ -145,7 +146,7 @@ local evals = {
 
       ]]
 
-      return script, 2, DELQUEUE .. queue, RUNNING, workername, jobHash, cb
+      return script, 2, DELQUEUE .. queue, common.RUNNING, workername, jobHash, cb
    end,
 }
 
@@ -243,7 +244,7 @@ end
 
 
 function delqueue.failure(queue, argtable)
-   print("FAILURE", argtable)
+   --print("FAILURE", queue.environment.workername, queue.name, argtable.jobHash, argtable.err)
    queue.environment.redis.eval(evals.delfailure(queue.environment.workername, queue.name, argtable.jobHash, argtable.err, cb))
 end
 
