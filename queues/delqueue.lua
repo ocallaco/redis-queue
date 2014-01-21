@@ -243,6 +243,7 @@ end
 
 
 function delqueue.failure(queue, argtable)
+   print("FAILURE", argtable)
    queue.environment.redis.eval(evals.delfailure(queue.environment.workername, queue.name, argtable.jobHash, argtable.err, cb))
 end
 
