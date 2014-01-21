@@ -9,7 +9,8 @@ tester.prepareWorker = function(worker)
    tester.jobsSeenBy[worker.index] = {}
 end
 
-tester.generateJob = function(i) 
+tester.generateJob = function(worker)
+   local i = worker.index
    local jobDescriptor = {WALL = {
       testJob = function(args) 
          if tester.jobsSeen[args.testnumber] then

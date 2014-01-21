@@ -1,6 +1,6 @@
 local common = require 'redis-queue.common'
 local json = require 'cjson'
-
+local async = require 'async'
 
 local LBQUEUE = "LBQUEUE:" -- ZSet job hash & priority
 local LBCHANNEL = "LBCHANNEL:" -- notify workers of new jobs on channel
@@ -246,13 +246,13 @@ function lbqueue.subscribe(queue, jobs, cb)
       queue.dequeueAndRun()
    end)
 
-   if cb then cb() end
+   queue.donesubscribing(cb)
 end
 
-function lbqueue.enqueue(queue, argtable, cb)
+function lbqueue.enqueue(queue, jobName, argtable, cb)
 
    -- instance allows multiple identical jobs to sit on the waiting set
-   local job = { queue = LBQUEUE .. queue.name, name = argtable.jobName, args = argtable.jobArgs, instance = async.hrtime()}
+   local job = { queue = LBQUEUE .. queue.name, name = jobName, args = argtable.jobArgs, instance = async.hrtime()}
    local jobHash = argtable.jobHash
 
    -- job.hash must be a string for dequeue logic
@@ -270,7 +270,7 @@ function lbqueue.enqueue(queue, argtable, cb)
    cb = cb or function(res) return end
 
    local jobJson = json.encode(job)
-   self.redis.eval(evals.lbenqueue(queue.name, jobJson, jobName, jobHash, priority, cb))
+   queue.environment.redis.eval(evals.lbenqueue(queue.name, jobJson, jobName, jobHash, priority, cb))
 end
 
 function lbqueue.reenqueue(queue, argtable, cb)

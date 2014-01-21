@@ -12,7 +12,7 @@ end
 tester.generateJob = function(worker) 
    local jobDescriptor = {WALL = {
       testJob = function(args) 
-         os.exit() 
+         error("ERROR") 
       end}
    }
    return jobDescriptor

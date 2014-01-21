@@ -23,7 +23,7 @@ tester.prepareWorker = function(worker)
 end
 
 -- must implement this!
-tester.generateJob = function(i) 
+tester.generateJob = function(worker) 
    error("GENERATEJOB NOT IMPLEMENTED")
 end
 
@@ -50,7 +50,7 @@ tester.run = function()
       
          tester.prepareWorker(worker)
          -- test must fill this job in!
-         local jobDescriptor = tester.generateJob(i)
+         local jobDescriptor = tester.generateJob(worker)
 
          rc.connect(redis_addr, function(client)
 

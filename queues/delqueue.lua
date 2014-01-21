@@ -190,13 +190,14 @@ function delqueue.subscribe(queue, jobs, cb)
       end
    end)
 
-   if cb then cb() end
+   queue.donesubscribing(cb)
 end
 
-function delqueue.enqueue(queue, argtable, cb)
+function delqueue.enqueue(queue, jobName, argtable, cb)
 
-   local job = { queue = DELQUEUE .. queue.name, name = argtable.jobName, args = argtable.jobArgs}
+   local job = { queue = DELQUEUE .. queue.name, name = jobName, args = argtable.jobArgs}
 
+   local jobHash = argtable.jobHash
    -- job.hash must be a string for dequeue logic
    if jobHash then
       job.hash = jobName .. jobHash
@@ -213,7 +214,7 @@ function delqueue.enqueue(queue, argtable, cb)
    cb = cb or function(res) return end
 
    local jobJson = json.encode(job)
-   self.redis.eval(evals.delenqueue(queue.name, jobJson, jobName, jobHash, timestamp, cb))
+   queue.environment.redis.eval(evals.delenqueue(queue.name, jobJson, jobName, jobHash, timestamp, cb))
 end
 
 function delqueue.reenqueue(queue, argtable, cb)
@@ -222,14 +223,14 @@ end
 
 function delqueue.dequeue(queue, cb)
 
-   queue.environment.redis.eval(evals.lbdequeue(queue.name, queue.environment.workername, function(response) 
+   queue.environment.redis.eval(evals.deldequeue(queue.name, queue.environment.workername, function(response) 
 
       local nexttimeout = response[2] and tonumber(response[2])
       if nexttimeout and nexttimeout <= os.time() then
          -- no need to wait for a timeout
          queue.waiting = true
       else
-         self:setJobTimeout(queue, nexttimeout)
+         setJobTimeout(queue, nexttimeout)
       end
 
       if response[1] == nil or response[1] == WAITSTRING then

@@ -9,10 +9,13 @@ tester.prepareWorker = function(worker)
    tester.jobsSeenBy[worker.index] = {}
 end
 
-tester.generateJob = function(worker) 
-   local jobDescriptor = {WALL = {
+tester.generateJob = function(worker)
+   local i = worker.index
+   local jobDescriptor = {USER = {
       testJob = function(args) 
-         os.exit() 
+         print(pretty.write(args))
+         tester.jobsSeen[args.testnumber] = true
+         table.insert(tester.jobsSeenBy[i], args.testnumber)
       end}
    }
    return jobDescriptor
@@ -22,7 +25,7 @@ tester.evaluateCode = function(i)
    print("jobs seen by worker " .. i .. ": " .. #tester.jobsSeenBy[i])
 
    if i == 1 then
-      for j = 1,200 do
+      for j = 1,25 do
          if not tester.jobsSeen[j] then
             print("!!!!!!!!!!!!Missed job " .. j)
          end

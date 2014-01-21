@@ -9,10 +9,18 @@ tester.prepareWorker = function(worker)
    tester.jobsSeenBy[worker.index] = {}
 end
 
-tester.generateJob = function(worker) 
-   local jobDescriptor = {WALL = {
+tester.generateJob = function(worker)
+   local i = worker.index
+   local jobDescriptor = {TAG = {
       testJob = function(args) 
-         os.exit() 
+         local jobtime = Date(args['time'])
+         print("Worker " .. worker.name .. " received " .. tostring(jobtime))
+
+         local currrettime = os.time()
+         print("current time " .. (args['time'] - currrettime))
+
+         tester.jobsSeen[args.testnumber] = true
+         table.insert(tester.jobsSeenBy[i], args.testnumber)
       end}
    }
    return jobDescriptor
