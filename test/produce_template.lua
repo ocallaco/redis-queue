@@ -1,4 +1,4 @@
-local q = require './init'
+local q = require 'redis-queue.init'
 local rc = require 'redis-async'
 
 local async = require 'async'
