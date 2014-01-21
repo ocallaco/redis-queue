@@ -14,7 +14,7 @@ tester.generateJob = function(worker)
    local jobDescriptor = {TAG = {
       testJob = function(args) 
          local jobtime = Date(args['time'])
-         print("Worker " .. worker.name .. " received " .. tostring(jobtime))
+         print("Worker " .. worker.name .. " received ", args)
 
          local currrettime = os.time()
          print("current time " .. (args['time'] - currrettime))
@@ -30,7 +30,7 @@ tester.evaluateCode = function(i)
    print("jobs seen by worker " .. i .. ": " .. #tester.jobsSeenBy[i])
 
    if i == 1 then
-      for j = 1,200 do
+      for j = 1,45 do
          if not tester.jobsSeen[j] then
             print("!!!!!!!!!!!!Missed job " .. j)
          end

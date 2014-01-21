@@ -17,10 +17,10 @@ fiber(function()
 
          print("test start")
 
-         for i = 25,1,-1 do
+         for i = 15,1,-1 do
             queue:delenqueue("TAG", "testJob", {a = 1, b = "test", testnumber = i, time = os.time() + (i * 1) }, i, os.time() + (i * 1))
-            queue:delenqueue("TAG", "testJob", {a = 1, b = "test", testnumber = i + 25, time = os.time() + (i * 1) }, i + 25, os.time() + (i * 1))
-            queue:delenqueue("TAG", "testJob", {a = 1, b = "test", testnumber = i + 50, time = os.time() + (i * 1) }, i + 50, os.time() + (i * 1))
+            queue:delenqueue("TAG", "testJob", {a = 1, b = "test", testnumber = i + 15, time = os.time() + (i * 1) }, i + 15, os.time() + (i * 1))
+            queue:delenqueue("TAG", "testJob", {a = 1, b = "test", testnumber = i + 30, time = os.time() + (i * 1) }, i + 30, os.time() + (i * 1))
          end
       end)
       
