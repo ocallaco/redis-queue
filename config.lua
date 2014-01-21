@@ -5,14 +5,18 @@ local STANDARD_QUEUE = "QUEUE"
 local LOADBAL_QUEUE = "LBQUEUE"
 local DELAYED_QUEUE = "DELQUEUE"
 
+local regqueue = require 'redis-queue.regqueue'
+local lbqueue = require 'redis-queue.lbqueue'
+local delqueue = require 'redis-queue.delqueue'
+
+local queueTypes = {}
+
+queueTypes[STANDARD_QUEUE] = regqueue
+queueTypes[LOADBAL_QUEUE] = lbqueue
+queueTypes[DELAYED_QUEUE] = delqueue
+
+
 RedisQueueConfig = {meta = {}}
-
-RedisQueueConfig.queueTypes = {
-   STANDARD_QUEUE,
-   LOADBAL_QUEUE
-}
-
-
 function RedisQueueConfig.meta:__index(key)
    return RedisQueueConfig[key]
 end
@@ -70,6 +74,15 @@ function RedisQueueConfig:fetchConfig(cb)
          cb()
       end
    end)
+end
+
+function RedisQueueConfig:getqueuemodels()
+   local queuemodels = {}
+   for name,qtype in pairs(self.configtbl) do 
+      queuemodels[name] = queueTypes[qtype]
+   end
+
+   return queuemodels
 end
 
 function RedisQueueConfig:getqueuetype(queue)

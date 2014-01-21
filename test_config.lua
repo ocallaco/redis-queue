@@ -19,8 +19,9 @@ fiber(function()
       print("test start")
 
       local testConfig = {
-         ['TEST1'] = queue.config.queueTypes[1],
-         ['TEST2'] = queue.config.queueTypes[2],
+         ['TEST1'] = "QUEUE",
+         ['TEST2'] = "LBQUEUE",
+         ['TEST3'] = "DELQUEUE",
       }
       queue.config:setConfig(testConfig)
 

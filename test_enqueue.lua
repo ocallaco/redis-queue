@@ -18,13 +18,13 @@ fiber(function()
          print("test start")
 
          for i = 1,200 do
-            queue:enqueue("WALL", "testJob", {conallhash  = "TEST", a = 1, b = "test", testnumber = i})
+            queue:enqueue("WALL", "testJob", {conallhash  = "TEST", a = 1, b = "test", testnumber = i}, i)
          end
       end)
       
       async.setTimeout(2800, function()
-         client.del("QUEUE:WALL")
-         client.del("UNIQUE:WALL")
+--         client.del("QUEUE:WALL")
+--         client.del("UNIQUE:WALL")
       end)
       async.setTimeout(3000, function()
          client.close()
