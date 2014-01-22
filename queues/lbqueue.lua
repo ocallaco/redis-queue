@@ -13,6 +13,37 @@ local INCREMENT = "INC"
 
 
 local evals = {
+
+   -- make this smarter so it removed job from LBJOBS if there's nothing waiting
+   startup = function(queue)
+      local script = [[
+         local queueName = KEYS[1]
+         local busy = KEYS[2]
+         local waiting = KEYS[3]
+         local jobmatch = KEYS[4]
+
+         local cleanupPrefix= ARGV[1]
+
+         local cleanupName = cleanupPrefix .. queueName
+
+         local cleanupJobs = redis.call('lrange', cleanupName, 0, -1)
+
+         for i,cleanupJob in ipairs(cleanupJobs)do
+            local x,y,firstpart,jobHash,lastpart = cleanupJob:find('(.*"hash":")(.-)(".*)')
+            local rehashedJob = firstpart .. "FAILURE:" .. jobHash .. lastpart
+
+            local x,y,firstpart,jobName,lastpart = rehashedJob:find('(.*"name":")(.-)(".*)')
+            local renamedJob = firstpart .. "FAILURE:" .. jobName .. lastpart
+            
+            redis.call('hdel', busy, jobHash)
+            redis.call('hset', jobmatch, "FAILURE:" .. jobHash, renamedJob)
+            redis.call('sadd', waiting, renamedJob)
+         end
+
+         redis.call('del', cleanupName)
+      ]]
+      return script, 4, LBQUEUE .. queue, LBBUSY .. queue, LBWAITING .. queue, LBJOBS .. queue, common.CLEANUP, cb
+   end,
    
    -- check if job exists.  if so, see if it's running.  if so, put on waiting list, otherwise, increment it
    -- note: hsetnx() ALWAYS returns integer 1 or 0
@@ -238,6 +269,8 @@ local lbqueue = {}
 
 function lbqueue.subscribe(queue, jobs, cb)
 
+   queue.environment.redis.eval(evals.startup(queue.name))
+
    async.fiber(function()
       for jobname, job in pairs(jobs) do
         
@@ -245,11 +278,11 @@ function lbqueue.subscribe(queue, jobs, cb)
             if job.prepare then
                wait(job.prepare, {})
             end
-            queue.jobs[jobname] = job.run
-            print(queue.jobs)
-         else
             queue.jobs[jobname] = job
+         else
+            queue.jobs[jobname] = {run = job}
          end
+            
       end
 
       queue.environment.subscriber.subscribe(LBCHANNEL .. queue.name, function(message)
@@ -263,7 +296,7 @@ end
 function lbqueue.enqueue(queue, jobName, argtable, cb)
 
    -- instance allows multiple identical jobs to sit on the waiting set
-   local job = { queue = LBQUEUE .. queue.name, name = jobName, args = argtable.jobArgs, instance = async.hrtime()}
+   local job = { queue = LBQUEUE .. queue.name, name = jobName, args = argtable.jobArgs, instance = async.hrtime(),}
    local jobHash = argtable.jobHash
 
    -- job.hash must be a string for dequeue logic
@@ -278,6 +311,8 @@ function lbqueue.enqueue(queue, jobName, argtable, cb)
    local priority = argtable.priority
 
    priority = priority or INCREMENT
+   job.priority = priority
+
    cb = cb or function(res) return end
 
    local jobJson = json.encode(job)
@@ -302,6 +337,42 @@ end
 
 function lbqueue.cleanup(queue, argtable, cb)
    queue.environment.redis.eval(evals.lbcleanup(queue.name, queue.environment.workername, argtable.jobHash, cb))
+end
+
+local jobAndMethod = function(res)
+   local name = res.name
+   local method = "run"
+   if name:find("FAILURE:") then
+      method = "failure"
+      local x,y,subname = name:find("FAILURE:(.*)")
+      name = subname
+   end
+   return name, method
+end
+
+function lbqueue.doOverrides(queue)
+   queue.execute = function(res)
+      local name, method = jobAndMethod(res)
+      local job = queue.jobs[name]
+      if job[method] then
+         job[method](res.args)
+      else
+         log.print("received job " .. name .. " method " .. method .. ":  No such method for job")
+      end
+   end
+
+   queue.failure = function(argtable, res)
+      lbqueue.failure(queue, argtable)
+
+      local name, method = jobAndMethod(res)
+      local job = queue.jobs[name]
+
+      if method == "run" and job.failure then
+         lbqueue.enqueue(queue, "FAILURE:" .. name, {jobHash = argtable.jobHash, jobArgs = res.args, priority = res.priority})
+      end
+
+   end
+
 end
 
 return lbqueue

@@ -8,6 +8,7 @@ local common = {
    FAILED = "RESERVED:FAILEDJOBS", -- hash 
    FAILED_ERROR = "RESERVED:FAILEDERROR", -- hash 
    FAILEDTIME = "RESERVED:FAILEDTIME", -- sorted set
+   CLEANUP = "RESERVED:CLEANUP:", -- list of jobs failed per queue, awaiting cleanup
 }
 
 return common

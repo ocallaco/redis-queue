@@ -88,12 +88,11 @@ function queuefactory:newqueue(name, queueType)
          if res then
             async.fiber(function()
                queue.state = "Running:" .. res.name
-               local job = queue.jobs[res.name]
+               
                local jobresult
 
                xpcall(function()
-                  if not job then error("JOB " .. res.name .. " NOT DEFINED ON WORKER!") end
-                  jobresult = queue.execute(job, res)
+                  jobresult = queue.execute(res)
                end,
                function(er)
                   local err = debug.traceback(er)
@@ -105,10 +104,10 @@ function queuefactory:newqueue(name, queueType)
                      jobHash = res.hash
                   end
 
-                  queue.failure({jobHash=jobHash, err=err})     
+                  queue.failure({jobHash=jobHash, err=err}, res)     
                end)
 
-               queue.cleanup({response = res, jobresult = jobresult, jobHash = res.hash})
+               queue.cleanup({response = res, jobresult = jobresult, jobHash = res.hash}, res)
  
                queue.state = "Ready"
                queue.busy = false
@@ -126,15 +125,16 @@ function queuefactory:newqueue(name, queueType)
       end)
    end
 
-   queue.execute = function(job, res)
+   queue.execute = function(res)
+      local job = queue.jobs[res.name]
       return job(res.args)
    end
 
-   queue.failure = function(argtable)
+   queue.failure = function(argtable, res)
       queueType.failure(queue, argtable)
    end
 
-   queue.cleanup = function(argtable)
+   queue.cleanup = function(argtable, res)
       queueType.cleanup(queue, argtable)
    end
 

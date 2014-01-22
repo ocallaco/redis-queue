@@ -9,6 +9,28 @@ local UNIQUE = "UNIQUE:"
 local json = require 'cjson'
 
 local evals = {
+
+   startup = function(queue)
+      local script = [[
+         local queueName = KEYS[1]
+         local unique = KEYS[2]
+         local cleanupPrefix = ARGV[1]
+
+         local cleanupName = cleanupPrefix .. queueName
+
+         local cleanupJobs = redis.call('lrange', cleanupName, 0, -1)
+
+         for i,cleanupJob in ipairs(cleanupJobs) do
+            local x,y,jobHash =  cleanupJob:find('"hash":"(.-)"')
+            if jobHash then
+               redis.call('hdel', unique, jobHash)
+            end
+         end
+         redis.call('del', cleanupName)
+      ]]
+      return script, 2, QUEUE .. queue, UNIQUE .. queue, common.CLEANUP, cb
+   end,
+
       -- enqueue on a standard queue -- check for hash uniqueness so we don't put the same job on twice
    -- note:  hsetnx() ALWAYS returns integer 1 or 0
    enqueue = function(queue, jobJson, jobName, jobHash, cb)
@@ -150,6 +172,9 @@ local evals = {
 }
 
 function regularQueue.subscribe(queue, jobs, cb)
+
+   queue.environment.redis.eval(evals.startup(queue.name))
+   
    for jobname,job in pairs(jobs) do
       queue.jobs[jobname] = job  
    end

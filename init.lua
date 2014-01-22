@@ -36,7 +36,8 @@ local evals = {
       local failureErrors = KEYS[4]
       local failedTime = KEYS[5]
    
-      local currenttime = ARGV[1]
+      local cleanupPrefix = ARGV[1]
+      local currenttime = ARGV[2]
 
       local clientList = redis.call('client', 'list')
       local liveWorkers = {}
@@ -92,11 +93,7 @@ local evals = {
                table.insert(failureTimeList, 0 - currenttime)
                table.insert(failureTimeList, failureHash)
 
-               if queuetype == "LBQUEUE" and jobHash then
-                  redis.call('hdel', "LBBUSY:"..queuename, jobHash)
-               elseif queuetype == "QUEUE" and jobHash then 
-                  redis.call('hdel', "UNIQUE:"..queuename, jobHash)
-               end
+               redis.call('lpush', cleanupPrefix .. queue, job)
             end
          end
 
@@ -114,7 +111,7 @@ local evals = {
 
       return jobsCleaned
       ]]
-      return script, 5, common.RUNNING, common.RUNNINGSINCE, common.FAILED, common.FAILED_ERROR, common.FAILEDTIME, os.time(), cb
+      return script, 5, common.RUNNING, common.RUNNINGSINCE, common.FAILED, common.FAILED_ERROR, common.FAILEDTIME, common.CLEANUP, os.time(), cb
    end,
 
 }
