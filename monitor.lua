@@ -2,6 +2,7 @@ local async = require 'async'
 require('pl.text').format_operator()
 local rc = require 'redis-async'
 local rq = require 'redis-queue'
+local common = require 'redis-queue.common'
 
 local c = async.repl.colorize
 local fiber = async.fiber
@@ -187,7 +188,7 @@ local mainPage = function(req, res)
    delqrows = table.concat(delqrows)
 
 
-   local workerinfo = wait({client.hgetall, client.hgetall}, {{"RESERVED:RUNNINGJOBS"},{"RESERVED:RUNNINGTIMES"}})
+   local workerinfo = wait({client.hgetall, client.hgetall}, {{common.RUNNING},{common.RUNNINGSINCE}})
 
    local wrows = {}
    
@@ -240,7 +241,7 @@ local mainPage = function(req, res)
 
    wrows = table.concat(wrows)
 
-   local failedTimes = wait(client.zrange, {"RESERVED:FAILEDTIME", 0, 19, "WITHSCORES"})
+   local failedTimes = wait(client.zrange, {common.FAILEDTIME, 0, 19, "WITHSCORES"})
 
    local failedHashes = {}
    local failedJobs = {}
@@ -254,7 +255,7 @@ local mainPage = function(req, res)
    end
 
    local failures = wait({client.hmget, client.hmget}, 
-      {{"RESERVED:FAILEDJOBS", unpack(failedHashes)},{"RESERVED:FAILEDERROR", unpack(failedHashes)}})
+      {{common.FAILED, unpack(failedHashes)},{common.FAILED_ERROR, unpack(failedHashes)}})
 
 
    for i=1,#failures[1][1] do
@@ -353,9 +354,9 @@ local mainPage = function(req, res)
 end
 
 local clearfailed = function(res)
-   client.del("RESERVED:FAILEDJOBS")
-   client.del("RESERVED:FAILEDERROR")
-   client.del("RESERVED:FAILEDTIME")
+   client.del(common.FAILED)
+   client.del(common.FAILED_ERROR)
+   client.del(common.FAILEDTIME)
    res("failed jobs cleared", {['Content-Type']='text/html'})
 end
 
@@ -384,7 +385,7 @@ local showJob = function(req, res)
 
    jobname = url_decode(jobname)
 
-   local vals = wait({client.hget, client.hget}, {{"RESERVED:FAILEDJOBS", jobname},{"RESERVED:FAILEDERROR", jobname}})
+   local vals = wait({client.hget, client.hget}, {{common.FAILED, jobname},{common.FAILED_ERROR, jobname}})
 
    local page = [[
    <html>
@@ -706,7 +707,7 @@ local retryJob = function(req,res)
 
    jobname = url_decode(jobname)
 
-   local args = wait(client.hget, {"RESERVED:FAILEDJOBS", jobname})
+   local args = wait(client.hget, {common.FAILED, jobname})
 
    queueClient:reenqueue(jobname, args)
 
@@ -719,9 +720,9 @@ local clearFailedJob = function(req,res)
 
    jobname = url_decode(jobname)
 
-   local args = wait(client.hget, {"RESERVED:FAILEDJOBS", jobname})
+   local args = wait(client.hget, {common.FAILED, jobname})
 
-   wait({client.hdel, client.hdel, client.zrem}, {{"RESERVED:FAILEDJOBS", jobname},{"RESERVED:FAILEDERROR", jobname}, {"RESERVED:FAILEDTIME", jobname}})
+   wait({client.hdel, client.hdel, client.zrem}, {{common.FAILED, jobname},{common.FAILED_ERROR, jobname}, {common.FAILEDTIME, jobname}})
 
    res("OK ".. jobname .." cleared", {['Content-Type']='text/html'})
 

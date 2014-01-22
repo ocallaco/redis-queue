@@ -122,22 +122,17 @@ local evals = {
 
 -- these enqueues are here for backwards compatibility
 function RedisQueue:enqueue(queueName, jobName, argtable, jobHash)
-
    local queue = self.queues[queueName]
-
    queue.enqueue(jobName, {jobArgs = argtable, jobHash = jobHash}, cb)
-
 end
 
 function RedisQueue:lbenqueue(queueName, jobName, argtable, jobHash, priority, cb)
    local queue = self.queues[queueName]
-
    queue.enqueue(jobName, {jobArgs = argtable, jobHash = jobHash, priority = priority}, cb)
 end
 
 function RedisQueue:delenqueue(queueName, jobName, argtable, jobHash, timestamp, cb)
    local queue = self.queues[queueName]
-
    queue.enqueue(jobName, {jobArgs = argtable, jobHash = jobHash, timestamp = timestamp}, cb)
 end
 
@@ -150,150 +145,10 @@ function RedisQueue:reenqueue(failureId, jobJson, cb)
    local queueObj = self.queues[queue]
 
    if queue and queueObj then
-      queueObj.reenqueue(jobJson, cb)
+      queueObj.reenqueue(failureId, jobJson, cb)
    else
       log.print("Error trying to requeue " .. jobJson)
    end
-end
-
---function RedisQueue:dequeueAndRun(queue, queueType)
---
---   if not queueType then
---      queueType = "queue"
---   end
---
---   -- atomically pop the job and push it onto an hset
---
---   -- if the worker is busy, set a reminder to check that queue when done processing, otherwise, process it
---   if self.busy or self.workername == nil then
---      self.queuesWaiting[queue] = true
---      return
---   end
---   
---   -- need to set this before pulling a job off the queue to ensure one job at a time
---   self.busy = true
---
---   -- not busy, so atomically take job off the queue, 
---   -- put it in the RUNNINGJOBS hash under the current worker's name
---
---   self.state = "Dequeuing job"
---
---
---   local dequeueFunct, failureFunct, cleanupFunct
---
---
---   if queueType == TYPEQUEUE then
---      dequeueFunct = evals.dequeue
---      failureFunct = evals.failure
---      cleanupFunct = evals.cleanup
---   elseif queueType == TYPELBQUEUE then
---      dequeueFunct = evals.lbdequeue
---      failureFunct = evals.lbfailure
---      cleanupFunct = evals.lbcleanup
---   elseif queueType == TYPEDELQUEUE then
---      dequeueFunct = evals.deldequeue
---      failureFunct = evals.delfailure
---      cleanupFunct = evals.delcleanup
---      -- delayed queue only sets this true when it's verified that there's another job ready
---      self.queuesWaiting[queue] = false
---   end
---
---   self.redis.eval(dequeueFunct(queue, self.workername, function(response)
---      
---      -- in delayed queue the second response value is the timestamp of the next job
---      -- setting this outside the fiber since there was a segfault when it was in the fiber
---      if queueType == TYPEDELQUEUE then
---         -- set the next timeout if necessary
---         local nexttimeout = response[2] and tonumber(response[2])
---         if nexttimeout and nexttimeout <= os.time() then
---            -- no need to wait for a timeout
---            self.queuesWaiting[queue] = true
---         else
---            self:setJobTimeout(queue, nexttimeout)
---         end
---      end
---
---      async.fiber(function()
---         if response then
---
---            local res = response
---
---            --print(pretty.write(res))
---
---            if type(response) == "table" then
---               res = response[1]
---            end
---
---            if queueType ~= TYPEDELQUEUE or res ~= WAITSTRING then
---               res = json.decode(res)
---
---
---               -- run the function associated with this job
---               self.state = "Running:" .. res.name
---
---               -- run it in a pcall
---
---               xpcall(function()
---                  self.jobs[res.name](res.args)
---               end,
---                  function(er)
---                     local err = debug.traceback(er)
---                     print(err) 
---                     local failureHash
---                     if res.hash == "0" then
---                        failureHash = res.name .. ":" .. json.encode(res.args)
---                     else
---                        failureHash = res.hash
---                     end
---
---                     self.redis.eval(failureFunct(self.workername, queue, failureHash, err, function(res)
---                        print("ERROR ON JOB " .. err )
---                        print("ATTEMPTED CLEANUP: REDIS RESPONSE ")
---                        print(res)
---                     end))      
---                  end
---               )
---
---               -- call the custom cleanup code for this type of queue
---               self.redis.eval(cleanupFunct(queue, self.workername, res.hash, function(response)
---                  if queueType == TYPEDELQUEUE and response then
---                     local nexttimeout = response
---                     self:setJobTimeout(queue, nexttimestamp)
---                  end
---               end))
---
---            end
---            self.state = "Ready"
---            self.busy = false
---         else
---            -- if we take a nil message off the queue, there's nothing left to process on that queue
---            self.state = "Ready"
---            self.busy = false
---            self.queuesWaiting[queue] = false
---         end
---
---         -- job's completed, let's check for other jobs we might have missed
---         for q,waiting in pairs(self.queuesWaiting) do
---            if waiting then
---               self:dequeueAndRun(q, queueType)
---            end
---         end
---      end)
---   end))
---end
-
-function RedisQueue:subscribeJob(queue, jobname, cb)
-
-end
-
-function RedisQueue:subscribeLBJob(queue, jobname, cb)
-
-end
-
-function RedisQueue:subscribeDELJob(queue, jobname, cb)
-end
-
-function RedisQueue:setJobTimeout(queue, nexttimestamp, cb)
 end
 
 -- please call this at the end of subscribing
@@ -319,39 +174,6 @@ function RedisQueue:registerWorker(redisDetails, jobs, cb)
    end))
 end
 
--- register a new worker -- see if previous worker on this machine exited uncleanly
--- if so: push last job to failed state.  clean out from queue locks.  
---function RedisQueue:registerWorker(redisDetails, cb)
---   
---   -- set the queuesWaiting table so we don't miss messages
---   self.queuesWaiting = {}
---   self.subscribedQueues = {}
---
---   -- set worker state so we can tell where it's hung up if it's hanging
---   self.workerstate = "idle"
---
---   -- get ip and port for redis client, append hi-res time for unique name
---
---   local name = self.redis.sockname.address .. ":" .. self.redis.sockname.port .. ":" .. async.hrtime()*10000
---
---   -- do cleanup in case dead workers are locking the queues
---   self.redis.eval(evals.newworker(function(res) 
---      self.redis.client('SETNAME', name, function(res)
---         self.workername = name
---         -- we need a separate client for handling subscriptions
---
---         redisasync.connect(redisDetails, function(subclient)
---            self.subscriber = subclient
---            self.subscriber.client('SETNAME', "SUB:" .. name, function(res) end)
---
---            if cb then
---               cb()
---            end
---         end)
---      end)
---   end))
---end
-
 function RedisQueue:close()
    if self.subscriber then
       self.subscriber.close()
@@ -361,7 +183,6 @@ end
 function RedisQueue:new(redis, cb)
    local newqueue = {}
 
-   -- need to fix this so we can wait until the queue is ready
    newqueue.redis = redis
    newqueue.jobs = {}
    newqueue.config = qc(redis)

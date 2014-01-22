@@ -60,7 +60,7 @@ function queuefactory:newqueue(name, queueType)
       queueType.enqueue(queue, jobName, args)
    end
 
-   queue.reenqueue = function(jobJson, cb)
+   queue.reenqueue = function(failureId, jobJson, cb)
       
       local _,_,jobHash = jobJson:find('"hash":"(.-)"')
       local _,_,jobName = jobJson:find('"name":"(.-)"')
