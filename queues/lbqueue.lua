@@ -238,15 +238,26 @@ local lbqueue = {}
 
 function lbqueue.subscribe(queue, jobs, cb)
 
-   for jobname, job in pairs(jobs) do
-      queue.jobs[jobname] = job  
-   end
+   async.fiber(function()
+      for jobname, job in pairs(jobs) do
+        
+         if type(job) == 'table' and job.prepare then
+            if job.prepare then
+               wait(job.prepare, {})
+            end
+            queue.jobs[jobname] = job.run
+            print(queue.jobs)
+         else
+            queue.jobs[jobname] = job
+         end
+      end
 
-   queue.environment.subscriber.subscribe(LBCHANNEL .. queue.name, function(message)
-      queue.dequeueAndRun()
+      queue.environment.subscriber.subscribe(LBCHANNEL .. queue.name, function(message)
+         queue.dequeueAndRun()
+      end)
+
+      queue.donesubscribing(cb)
    end)
-
-   queue.donesubscribing(cb)
 end
 
 function lbqueue.enqueue(queue, jobName, argtable, cb)
