@@ -63,6 +63,7 @@ local evals = {
       end
 
       if newjob ~= 0 then
+         print(job, jobName, failed, failedError, failedTime, failureHash)
          redis.call('lpush', queue, job)
          redis.call('publish', chann, jobName)
          redis.call('hdel', failed, failureHash) 

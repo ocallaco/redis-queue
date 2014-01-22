@@ -257,20 +257,20 @@ local mainPage = function(req, res)
       {{"RESERVED:FAILEDJOBS", unpack(failedHashes)},{"RESERVED:FAILEDERROR", unpack(failedHashes)}})
 
 
-
    for i=1,#failures[1][1] do
       local jobHash = failedHashes[i]
-      local jobJson = failures[1][1][i+1]
+      local jobJson = failures[1][1][i]
       failedJobs[jobHash] = jobJson
    end
 
    for i=1,#failures[2][1] do
       local jobHash = failedHashes[i]
-      local jobError = failures[2][1][i+1]
+      local jobError = failures[2][1][i]
       failureReasons[jobHash] = jobError
    end
 
    local frows = {}
+
 
    for k,v in pairs(failedJobs) do
 

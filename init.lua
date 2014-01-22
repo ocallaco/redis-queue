@@ -61,8 +61,7 @@ local evals = {
       local jobsCleaned = 0
 
       if #deadWorkers > 0 then
-            
-
+           
          local deadJobs = redis.call('hmget', runningJobs, unpack(deadWorkers))
          local newFailedJobs = {}
          local failureReasons = {}
