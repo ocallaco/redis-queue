@@ -20,7 +20,7 @@ fiber(function()
          for i = 1,200 do
             local rnd = torch.uniform(0,1)
             if rnd > 0.5 then
-               queue:lbenqueue("USER", "testJob", {a = 1, b = "test", testnumber = (i % 25) + 1 }, tostring((i % 25) + 1))
+               queue:enqueueJob("USER", "testJob", {a = 1, b = "test", testnumber = (i % 25) + 1 }, {jobHash = tostring((i % 25) + 1)})
             end
          end
       end)

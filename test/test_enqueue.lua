@@ -18,7 +18,7 @@ fiber(function()
          print("test start")
 
          for i = 1,200 do
-            queue:enqueue("WALL", "testJob", {conallhash  = "TEST", a = 1, b = "test", testnumber = i}, i)
+            queue:enqueueJob("WALL", "testJob", {conallhash  = "TEST", a = 1, b = "test", testnumber = i}, {jobHash = i})
          end
       end)
       

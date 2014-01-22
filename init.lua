@@ -120,6 +120,12 @@ local evals = {
 }
 
 
+function RedisQueue:enqueueJob(queueName, jobName, jobArgs, moreArgs, cb)
+   local queue = self.queues[queueName]
+   moreArgs.jobArgs = jobArgs
+   queue.enqueue(jobName, moreArgs, cb)
+end
+
 -- these enqueues are here for backwards compatibility
 function RedisQueue:enqueue(queueName, jobName, argtable, jobHash)
    local queue = self.queues[queueName]
