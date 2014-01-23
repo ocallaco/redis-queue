@@ -355,6 +355,7 @@ function lbqueue.doOverrides(queue)
       local name, method = jobAndMethod(res)
       local job = queue.jobs[name]
       if job[method] then
+         print(job)
          job[method](res.args)
       else
          log.print("received job " .. name .. " method " .. method .. ":  No such method for job")
