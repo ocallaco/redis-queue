@@ -274,7 +274,7 @@ function lbqueue.subscribe(queue, jobs, cb)
    async.fiber(function()
       for jobname, job in pairs(jobs) do
         
-         if type(job) == 'table' and job.prepare then
+         if type(job) == 'table' then
             if job.prepare then
                wait(job.prepare, {})
             end
@@ -355,7 +355,6 @@ function lbqueue.doOverrides(queue)
       local name, method = jobAndMethod(res)
       local job = queue.jobs[name]
       if job[method] then
-         print(job)
          job[method](res.args)
       else
          log.print("received job " .. name .. " method " .. method .. ":  No such method for job")
