@@ -86,7 +86,7 @@ function queuefactory:newqueue(name, queueType)
       queueType.dequeue(queue, function(res)
 
          if res then
-            async.fiber(function()
+            async.pcall(async.fiber(function()
                queue.state = "Running:" .. res.name
                
                local jobresult
@@ -116,7 +116,7 @@ function queuefactory:newqueue(name, queueType)
                if queue.waiting then 
                   queue.dequeueAndRun()
                end
-            end)
+            end))
          else
             queue.busy = false
             queue.waiting = false
