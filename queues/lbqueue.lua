@@ -354,6 +354,9 @@ function lbqueue.doOverrides(queue)
    queue.execute = function(res)
       local name, method = jobAndMethod(res)
       local job = queue.jobs[name]
+      if job == nil then
+         log.print("ERROR -- no job found for jobname:" .. name)
+      end
       if job[method] then
          job[method](res.args)
       else
