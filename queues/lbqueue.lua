@@ -326,8 +326,6 @@ end
 function lbqueue.dequeue(queue, cb)
 
    queue.environment.redis.eval(evals.lbdequeue(queue.name, queue.environment.workername, function(response) 
-      print("DEBUG")
-      print(response)
       local response = response and json.decode(response)
       cb(response)
    end))
