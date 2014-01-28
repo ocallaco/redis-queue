@@ -7,6 +7,7 @@ local LBCHANNEL = "LBCHANNEL:" -- notify workers of new jobs on channel
 local LBJOBS = "LBJOBS:" -- Hash jobHash => jobJson
 local LBBUSY = "LBBUSY:" -- Hash jobHash => workername
 local LBWAITING = "LBWAITING:" -- Set
+--local LBLASTPRIO = "LBLASTPRIO:" -- Hash jobHash => priority
 
    -- other constants
 local INCREMENT = "INC"
@@ -296,7 +297,7 @@ end
 function lbqueue.enqueue(queue, jobName, argtable, cb)
 
    -- instance allows multiple identical jobs to sit on the waiting set
-   local job = { queue = LBQUEUE .. queue.name, name = jobName, args = argtable.jobArgs, instance = async.hrtime(),}
+   local job = { queue = LBQUEUE .. queue.name, name = jobName, args = argtable.jobArgs,}
    local jobHash = argtable.jobHash
 
    -- job.hash must be a string for dequeue logic
