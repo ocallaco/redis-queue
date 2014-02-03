@@ -193,7 +193,7 @@ function delqueue.subscribe(queue, jobs, cb)
 
    if queue.intervalSet ~= true then
       async.setInterval(60 * 1000, function() 
-         if queue.nexttimestamp and queue.nexttimestamp < os.time() then
+         if queue.nexttimestamp == nil or (queue.nexttimestamp and queue.nexttimestamp < os.time()) then
             queue.dequeueAndRun() 
          end
 
