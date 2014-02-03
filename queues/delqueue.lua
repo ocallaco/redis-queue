@@ -191,6 +191,16 @@ function delqueue.subscribe(queue, jobs, cb)
       end
    end)
 
+   if queue.intervalSet ~= true then
+      async.setInterval(60 * 1000, function() 
+         if queue.nexttimestamp and queue.nexttimestamp < os.time() then
+            queue.dequeueAndRun() 
+         end
+
+         queue.intervalSet = true
+      end)
+   end
+
    queue.donesubscribing(cb)
 end
 
