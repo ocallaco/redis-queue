@@ -149,7 +149,7 @@ local mainPage = function(req, res)
       <td> ${busy} </td> 
       <td> ${waiting} </td> 
       <td><a href="${showurl}">Show</a></td> 
-      <td><a href="${clearurl}" onclick="return confirm('Are you sure?')">Clear Queue</a></td> 
+      <td><a href="${clearurl}" onclick="return confirm('Are you sure?')">Clear</a></td> 
       </tr>
       ]] % {
          name = key,
@@ -158,7 +158,7 @@ local mainPage = function(req, res)
          busy = vals[3][1] or 0,
          waiting = vals[4][1] or 0,
          showurl = "/showlbq?queue="..key,
-         clearurl = "/clear?queue="..key.."&type=LB"
+         clearurl = "/clear?queue="..key.."&type=LB",
       }
       table.insert(lbqrows, row)
    end
@@ -538,11 +538,12 @@ local showLBQ = function(req, res)
    for i = 1,#busyJobs,2 do 
       local row = [[
       <tr> 
-      <td> ${workername} </td>
       <td> ${job} </td> 
+      <td><a href="${clearbusyurl}" onclick="return confirm('Are you sure?')">Clear</a></td>
       </tr>
       ]] % {
          job = busyJobs[i],
+         clearbusyurl = "/clearbusy?queue=" .. queue .. "&job=" .. busyJobs[i]
       }
       table.insert(busyjobrows, row)
    end
@@ -728,6 +729,20 @@ local clearFailedJob = function(req,res)
 
 end
 
+local clearBusy = function(req,res)
+   local _,_,queue= req.url.query:find("queue=(%w+)")
+   local _,_,jobname = req.url.query:find("job=(.*)")
+   jobname = url_decode(jobname)
+
+   -- not good form to have this logic here, but it's a specific problem we're solving for now
+   -- eventually, queue's web representation will be modularized
+
+   print(queue, jobname)
+   client.hdel("LBBUSY:" .. queue, jobname)
+      
+   res("OK ".. jobname .." cleared", {['Content-Type']='text/html'})
+
+end
 
 -- listen up:
 async.http.listen('http://0.0.0.0:'..port, function(req,res)
@@ -754,6 +769,8 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
          retryJob(req,res)
       elseif req.url.path == "/clearjob" then
          clearFailedJob(req,res)
+      elseif req.url.path == "/clearbusy" then
+         clearBusy(req,res)
       elseif req.url.path == "/die" then
          os.exit()
       end
