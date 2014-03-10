@@ -53,11 +53,11 @@ function queuefactory:newqueue(name, queueType)
       if cb then cb() end
    end
 
-   queue.enqueue = function(jobName, args)
+   queue.enqueue = function(jobName, args, cb)
       local jobArgs = args.jobArgs
       checkArgs(jobArgs)
       
-      queueType.enqueue(queue, jobName, args)
+      queueType.enqueue(queue, jobName, args, cb)
    end
 
    queue.reenqueue = function(failureId, jobJson, cb)
