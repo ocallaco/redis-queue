@@ -134,6 +134,7 @@ local evals = {
    -- note, could be more efficient by tallying up the times i see a hash and zincrby only once per hash
    -- but this is already pretty elaborate.  don't want more moving parts to get me confused right now
    -- take top job off queue and return it
+   -- TODO: BUG -- reuses jobJson if job was waiting.  should replace LBJOBS entry for job with the JSON on the waiting list
    lbdequeue = function(queue, workername, cb)
       script = [[
          local queue = KEYS[1]

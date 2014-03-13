@@ -4,7 +4,7 @@ local rc = require 'redis-async'
 local async = require 'async'
 local fiber = require 'async.fiber'
 
-local redis_addr = {host='localhost', port=6379}
+local redis_addr = {host='127.0.0.1', port=6379}
 
 local tester = {}
 

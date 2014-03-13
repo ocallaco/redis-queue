@@ -12,6 +12,7 @@ local evals = {
    
    -- like an lb queue, but without worrying about collisions -- the jobhash is the scheduled time and the job's unique hash
    -- to allow multiple identical jobs to be scheduled
+   -- TODO: add cleanup work
    delenqueue = function(queue, jobJson, jobName, jobHash, scheduletime, cb)
       local script = [[
       local jobJson = ARGV[1]

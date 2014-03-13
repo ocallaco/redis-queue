@@ -107,7 +107,7 @@ function queuefactory:newqueue(name, queueType)
                   queue.failure({jobHash=jobHash, err=err}, res)     
                end)
 
-               queue.cleanup({response = res, jobresult = jobresult, jobHash = res.hash}, res)
+               queue.cleanup({response = res, jobresult = jobresult, jobHash = res.hash, jobName = res.name}, res)
  
                queue.state = "Ready"
                queue.busy = false
