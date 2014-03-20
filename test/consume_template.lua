@@ -64,11 +64,14 @@ tester.run = function()
                   print("test start " .. i)
 
                   async.setTimeout(15000, function()
+                     tester.evaluateCode(i, client)
+                  end)
+
+                  async.setTimeout(16000, function()
                      print(worker.name .. " closing")
                      client.close()
                      worker.queue:close()
 
-                     tester.evaluateCode(i)
 
                   end)
                end)

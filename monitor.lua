@@ -4,6 +4,8 @@ local rc = require 'redis-async'
 local rq = require 'redis-queue'
 local common = require 'redis-queue.common'
 
+local mrq = require 'redis-queue.mrqueue'
+
 local c = async.repl.colorize
 local fiber = async.fiber
 local wait = fiber.wait
@@ -24,7 +26,8 @@ end)
 
 local function gettimeago(ts)
    local now = os.time()
-   local diff = now - ts
+
+   local diff = now - (ts or 0)
 
    if diff < 60 then
       return diff .. " seconds ago"
@@ -744,6 +747,28 @@ local clearBusy = function(req,res)
 
 end
 
+local showMRQ = function(req,res)
+   local _,_,queue= req.url.query:find("queue=(%w+)")
+
+   local mrtable = mrq.show(client, queue)
+
+   -- full page:
+   local page = [[
+   <html>
+   ${header}
+   <body>
+   
+   ${mrtable}
+   </body>
+   </html>
+   ]] % {header = header, mrtable = mrtable}
+
+
+   -- html response:
+   res(page, {['Content-Type']='text/html'})
+
+end
+
 -- listen up:
 async.http.listen('http://0.0.0.0:'..port, function(req,res)
    fiber(function()
@@ -773,6 +798,8 @@ async.http.listen('http://0.0.0.0:'..port, function(req,res)
          clearBusy(req,res)
       elseif req.url.path == "/die" then
          os.exit()
+      elseif req.url.path == "/mrqueue" then
+         showMRQ(req,res)
       end
    end)
 end)

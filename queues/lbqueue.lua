@@ -268,6 +268,7 @@ local evals = {
 
 local lbqueue = {}
 
+
 function lbqueue.subscribe(queue, jobs, cb)
 
    queue.environment.redis.eval(evals.startup(queue.name))

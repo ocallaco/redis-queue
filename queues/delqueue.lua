@@ -9,6 +9,34 @@ local DELJOBS = "DELJOBS:"  -- Hash jobHash => jobJson
 local WAITSTRING = "RESERVED_MESSAGE_WAIT" -- indicates that delayed queue has no jobs ready
 
 local evals = {
+
+   -- make this smarter so it removed job from LBJOBS if there's nothing waiting
+   startup = function(queue)
+      local script = [[
+         local queueName = KEYS[1]
+         local jobmatch = KEYS[2]
+
+         local cleanupPrefix= ARGV[1]
+
+         local cleanupName = cleanupPrefix .. queueName
+
+         local cleanupJobs = redis.call('lrange', cleanupName, 0, -1)
+
+         for i,cleanupJob in ipairs(cleanupJobs)do
+            local x,y,firstpart,jobHash,lastpart = cleanupJob:find('(.*"hash":")(.-)(".*)')
+            local rehashedJob = firstpart .. "FAILURE:" .. jobHash .. lastpart
+
+            local x,y,firstpart,jobName,lastpart = rehashedJob:find('(.*"name":")(.-)(".*)')
+            local renamedJob = firstpart .. "FAILURE:" .. jobName .. lastpart
+            
+            redis.call('hdel', jobmatch, jobHash)
+         end
+
+         redis.call('del', cleanupName)
+      ]]
+      return script, 2, DELQUEUE .. queue, DELJOBS .. queue, common.CLEANUP, cb
+   end,
+   
    
    -- like an lb queue, but without worrying about collisions -- the jobhash is the scheduled time and the job's unique hash
    -- to allow multiple identical jobs to be scheduled
@@ -174,6 +202,8 @@ local setJobTimeout = function(queue, nexttimestamp)
 end
 
 function delqueue.subscribe(queue, jobs, cb)
+
+   queue.environment.redis.eval(evals.startup(queue.name))
 
    for jobname, job in pairs(jobs) do
       queue.jobs[jobname] = job  

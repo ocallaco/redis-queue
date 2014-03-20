@@ -39,6 +39,10 @@ function queuefactory:newqueue(name, queueType)
 
    local redis = self.environment.redis
 
+   queue.startup = function(cb)
+      queueType.startup(queue, cb)
+   end
+
    queue.subscribe = function(jobs, cb)   
       if queue.environment == nil or queue.environment.subscriber == nil then
          error('Environment not ready for subscription -- either not inited or subscription connection not opened yet')
@@ -90,11 +94,13 @@ function queuefactory:newqueue(name, queueType)
                queue.state = "Running:" .. res.name
                
                local jobresult
+               local jobsuccess = true
 
                xpcall(function()
                   jobresult = queue.execute(res)
                end,
                function(er)
+                  jobsuccess = false
                   local err = debug.traceback(er)
                   print(err) 
                   local jobHash
@@ -107,7 +113,7 @@ function queuefactory:newqueue(name, queueType)
                   queue.failure({jobHash=jobHash, err=err}, res)     
                end)
 
-               queue.cleanup({response = res, jobresult = jobresult, jobHash = res.hash, jobName = res.name}, res)
+               queue.cleanup({response = res, jobresult = jobresult, jobHash = res.hash, jobName = res.name, success = jobsuccess}, res)
  
                queue.state = "Ready"
                queue.busy = false

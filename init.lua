@@ -28,7 +28,7 @@ local evals = {
    -- all workers that ever did a job will be represented in the runningSince hash 
    -- (it isnt cleared on success or failure, only overwritten on new jobs
    -- so get all workers who did work, see if they left a bad state and clean it up, then clear out their old data
-   -- TODO: allow queues to set supress errors to allow them to do their own error reporting when a job was left by a dead worker
+  
    newworker= function(cb)
       local script = [[
       local runningJobs = KEYS[1]
