@@ -101,6 +101,7 @@ local mainPage = function(req, res)
    local queues = {}
    local lbqueues = {}
    local delqueues = {}
+   local mrqueues = {}
 
    -- identify keys
    for queue,qType in pairs(qconfig) do
@@ -108,6 +109,8 @@ local mainPage = function(req, res)
          table.insert(lbqueues, queue)
       elseif qType == "DELQUEUE" then
          table.insert(delqueues, queue)
+      elseif qType == "MRQUEUE" then
+         table.insert(mrqueues, queue)
       else
          table.insert(queues, queue)
       end
@@ -117,6 +120,7 @@ local mainPage = function(req, res)
    local qrows = {}
    local lbqrows = {}
    local delqrows = {}
+   local mrqrows = {}
 
 
    for i,key in ipairs(queues) do 
@@ -140,7 +144,7 @@ local mainPage = function(req, res)
    end
    qrows = table.concat(qrows)
 
-
+   
    for i,key in ipairs(lbqueues) do 
       local vals = wait({client.zcard, client.hlen, client.hlen, client.scard}, {{"LBQUEUE:" .. key},{"LBJOBS:" .. key},{"LBBUSY:" .. key},{"LBWAITING:" .. key}})
 
@@ -190,6 +194,21 @@ local mainPage = function(req, res)
    end
    delqrows = table.concat(delqrows)
 
+   
+   for i,key in ipairs(mrqueues) do
+      local row = [[
+      <tr> 
+      <td> ${name} </td>
+      <td><a href="${showurl}">Show</a></td> 
+      </tr>
+      ]] % {
+         name = key,
+         showurl = "/mrqueue?queue="..key,
+      }
+      table.insert(mrqrows, row)
+   end
+
+   mrqrows = table.concat(mrqrows)
 
    local workerinfo = wait({client.hgetall, client.hgetall}, {{common.RUNNING},{common.RUNNINGSINCE}})
 
@@ -318,6 +337,13 @@ local mainPage = function(req, res)
    </table>
 
    <table>
+   <tr> 
+   <th>Map Reduce Queues</th> 
+   </tr>
+   ${mrquevals}
+   </table>
+
+   <table>
    <tr> <th>Load Balanced Queues</th> 
    <th>Jobs Queued</th> 
    <th>Jobs Known</th> 
@@ -349,7 +375,7 @@ local mainPage = function(req, res)
 
    </body>
    </html>
-   ]] % {header = header, quevals = qrows, lbquevals = lbqrows, delquevals = delqrows, workervals = wrows, failedvals = frows}
+   ]] % {header = header, quevals = qrows, lbquevals = lbqrows, delquevals = delqrows, mrquevals = mrqrows, workervals = wrows, failedvals = frows}
 
    -- html response:
    res(page, {['Content-Type']='text/html'})
