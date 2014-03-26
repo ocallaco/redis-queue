@@ -52,7 +52,6 @@ local evals = {
          end
 
          redis.call('set', mrleader, leaderqueue)
-         print("NEW LEADER " .. leaderqueue)
 
          for j=1,queuecount do 
             local subqueuename = queueprefix .. j .. ":" .. queuename
@@ -398,7 +397,6 @@ local evals = {
          end
 
          redis.call('set', mrleader, leaderqueue)
-         print("NEW LEADER " .. leaderqueue)
 
       elseif curprog == -1 then
          redis.call('del', results)
