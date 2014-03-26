@@ -163,6 +163,8 @@ function RedisQueue:registerWorker(redisDetails, jobs, options, cb)
    if type(options) == 'function' then
       cb = options
       options = {}
+   elseif options == nil then
+      options = {}
    end
 
    local name = self.redis.sockname.address .. ":" .. self.redis.sockname.port .. ":" .. async.hrtime()*10000
