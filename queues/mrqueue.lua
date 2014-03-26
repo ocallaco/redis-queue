@@ -435,9 +435,8 @@ function mrqueue.enqueue(queue, jobName, argtable, cb)
       
    jobHash = job.hash
 
-   local priority = argtable.priority
+   local priority = argtable.priority || os.time()
 
-   priority = priority or INCREMENT
    job.priority = priority
 
    cb = cb or function(res) return end
