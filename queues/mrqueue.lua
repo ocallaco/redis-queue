@@ -10,6 +10,7 @@ local MRPROGRESS = "MRPROGRESS:" -- Hash jobHash => # of workers left to report 
 local MRRESULTS = "MRRESULTS:" -- Hash queue name = subqueue, entry = results hash for reduce step
 local MRASSIGNMENT = "MRASSIGNMENT:" -- Hash workername => queuenumber
 local MRWAITING = "MRWAITING:" -- Hash jobHash => jobJson
+local MRLEADER = "MRLEADER:" -- Key/Val -- the queue currently with the least jobs queued (responsible for reduces)
 
    -- other constants
 local INCREMENT = "INC"
@@ -27,6 +28,7 @@ local evals = {
          local progress = KEYS[4]
          local waiting = KEYS[5]
          local chann = KEYS[6]
+         local mrleader = KEYS[7]
 
 
          local cleanupPrefix= ARGV[1]
@@ -38,6 +40,19 @@ local evals = {
          
          local queuecount = redis.call('hget', mrconfig, "nqueues")
          local reducequeue = queueprefix .. "0:" .. queuename
+
+         local leaderqueue, leaderscore
+         for i=1,queuecount do
+            local otherqueue = queueprefix .. i .. ":" .. queuename
+            local queuescore = redis.call('zcard', otherqueue)
+            if (not leaderscore) or leaderscore > queuescore then
+               leaderqueue = otherqueue
+               leaderscore = queuescore
+            end
+         end
+
+         redis.call('set', mrleader, leaderqueue)
+         print("NEW LEADER " .. leaderqueue)
 
          for j=1,queuecount do 
             local subqueuename = queueprefix .. j .. ":" .. queuename
@@ -114,7 +129,7 @@ local evals = {
 
          redis.call('hset', assignment, workername, queueprefix .. nodenum .. ":" .. queuename)
       ]]
-      return script, 6, MRJOBS .. queue, MRASSIGNMENT .. queue, MRCONFIG .. queue, MRPROGRESS .. queue, MRWAITING .. queue, MRCHANNEL .. queue, common.CLEANUP, MRQUEUE, queue, workername, nodenum, MRRESULTS .. queue .. ":", cb
+      return script, 7, MRJOBS .. queue, MRASSIGNMENT .. queue, MRCONFIG .. queue, MRPROGRESS .. queue, MRWAITING .. queue, MRCHANNEL .. queue, MRLEADER .. queue, common.CLEANUP, MRQUEUE, queue, workername, nodenum, MRRESULTS .. queue .. ":", cb
    end,
   
    --DONE
@@ -231,6 +246,7 @@ local evals = {
          local assignment = KEYS[3] --
          local running = KEYS[4] --
          local runningSince = KEYS[5] --
+         local mrleader = KEYS[6]
 
          local queuename = ARGV[1]
          local resultsPrefix = ARGV[2]
@@ -239,15 +255,20 @@ local evals = {
 
          local isReduce = 1
 
-         local myqueue = reducequeue
-         local topJobHash = redis.call('zrange', reducequeue, 0, 0)[1]
-         redis.call('zremrangebyrank', reducequeue, 0, 0)
+         local myqueue = redis.call('hget', assignment, workername)
+         local topJobHash = nil
+
+         if redis.call('get', mrleader) == myqueue then
+            topJobHash = redis.call('zrange', reducequeue, 0, 0)[1]
+            redis.call('zremrangebyrank', reducequeue, 0, 0)
+         end
 
          if not topJobHash then
             isReduce = 0
-            myqueue = redis.call('hget', assignment, workername)
             topJobHash = redis.call('zrange', myqueue, 0, 0)[1]
             redis.call('zremrangebyrank', myqueue, 0, 0)
+         else
+            myqueue = reducequeue
          end
 
          local topJob = nil
@@ -266,7 +287,7 @@ local evals = {
 
       ]]
 
-      return script, 5, MRQUEUE .. "0:" .. queue, MRJOBS .. queue, MRASSIGNMENT .. queue, common.RUNNING, common.RUNNINGSINCE,MRQUEUE .. queue, MRRESULTS .. queue .. ":", workername, os.time(), cb
+      return script, 6, MRQUEUE .. "0:" .. queue, MRJOBS .. queue, MRASSIGNMENT .. queue, common.RUNNING, common.RUNNINGSINCE, MRLEADER .. queue, MRQUEUE .. queue, MRRESULTS .. queue .. ":", workername, os.time(), cb
    end,
     -- this needs to be built out better 
     -- IN PROGRESS -- written but not tested
@@ -333,6 +354,7 @@ local evals = {
       local reducequeue = KEYS[7]
       local chann = KEYS[8]
       local mrconfig = KEYS[9]
+      local mrleader = KEYS[10]
 
       local workername = ARGV[1]
       local jobHash = ARGV[2]
@@ -357,9 +379,27 @@ local evals = {
       end
 
 
-      if curprog == 0 and success then
-         redis.call('zincrby', reducequeue, -1, jobHash)
-         redis.call('publish', chann, jobName)
+      if curprog == 0 then
+         if success then
+            redis.call('zincrby', reducequeue, -1, jobHash)
+            redis.call('publish', chann, jobName)
+         end
+
+         local queuecount = redis.call('hget', mrconfig, "nqueues")
+         local leaderqueue, leaderscore
+
+         for i=1,queuecount do
+            local otherqueue = queueprefix .. i .. ":" .. queuename
+            local queuescore = redis.call('zcard', otherqueue)
+            if (not leaderscore) or leaderscore > queuescore then
+               leaderqueue = otherqueue
+               leaderscore = queuescore
+            end
+         end
+
+         redis.call('set', mrleader, leaderqueue)
+         print("NEW LEADER " .. leaderqueue)
+
       elseif curprog == -1 then
          redis.call('del', results)
          local waitingJob = redis.call('hget', waiting, jobHash)
@@ -384,7 +424,7 @@ local evals = {
 
       ]]
 
-      return script, 9, common.RUNNING, MRPROGRESS .. queue, MRRESULTS .. queue .. ":" .. jobHash, MRASSIGNMENT .. queue, MRWAITING .. queue, MRJOBS .. queue, MRQUEUE .. "0:" .. queue, MRCHANNEL .. queue, MRCONFIG .. queue, workername, jobHash, jobName, MRQUEUE, queue, (success and 1) or 0, cb
+      return script, 10, common.RUNNING, MRPROGRESS .. queue, MRRESULTS .. queue .. ":" .. jobHash, MRASSIGNMENT .. queue, MRWAITING .. queue, MRJOBS .. queue, MRQUEUE .. "0:" .. queue, MRCHANNEL .. queue, MRCONFIG .. queue, MRLEADER .. queue, workername, jobHash, jobName, MRQUEUE, queue, (success and 1) or 0, cb
 
    end,
      

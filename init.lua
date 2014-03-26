@@ -159,21 +159,36 @@ end
 function RedisQueue:doneSubscribing()
 end
 
-function RedisQueue:registerWorker(redisDetails, jobs, cb)
+function RedisQueue:registerWorker(redisDetails, jobs, options, cb)
+   if type(options) == 'function' then
+      cb = options
+      options = {}
+   end
 
    local name = self.redis.sockname.address .. ":" .. self.redis.sockname.port .. ":" .. async.hrtime()*10000
 
    self.redis.eval(evals.newworker(function(res) 
+
       self.redis.client('SETNAME', name, function(res)
          self.workername = name
-         redisasync.connect(redisDetails, function(subclient)
-            self.subscriber = subclient
+         
+         if options.subclient then
+            self.subscriber = options.subclient
             for queuename, jobList in pairs(jobs) do
                local queue = self.queues[queuename]
                queue.subscribe(jobList)
             end
             if cb then cb() end
-         end)
+         else
+            redisasync.connect(redisDetails, function(subclient)
+               self.subscriber = subclient
+               for queuename, jobList in pairs(jobs) do
+                  local queue = self.queues[queuename]
+                  queue.subscribe(jobList)
+               end
+               if cb then cb() end
+            end)
+         end
       end)
    end))
 end

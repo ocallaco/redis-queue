@@ -24,6 +24,7 @@ tester.generateJob = function(worker)
             print("MAP",args.testnumber)
             table.insert(tester.jobsSeenBy[i], args.testnumber)
             table.insert(tester.jobLog[args.testnumber], "MAP " .. (((x % 13 > 9) and "FAILURE") or "SUCCESS") )
+            --table.insert(tester.jobLog[args.testnumber], "MAP SUCCESS") 
             
             if x % 13 > 9 then
                --error("ERROR!")
