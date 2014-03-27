@@ -606,63 +606,65 @@ function mrqueue.show(redis, name)
 
    local queuetable = "<table>" .. table.concat(toprow) .. table.concat(datarow) .. "</table>"
 
-   -- show job progress and results so far
-   local jobs = {}
-   local progress = {}
-
-   for i=1,#progress_ar,2 do
-      table.insert(jobs, progress_ar[i])
-      progress[progress_ar[i]] = progress_ar[i+1]
-   end
-
-
-   local job_results_getter = {}
-   local job_results_args = {}
-
-   local top_entry = {"<table><tr><th>Job</th><th>Progress</th>"}
-   for i=1,nqueues do 
-      table.insert(top_entry,"<th>" ..  MRQUEUE .. i .. ":" .. name .."</th>")
-   end
-   table.insert(top_entry,"</tr>")
-   
-
-   for i,job in ipairs(jobs) do
-      table.insert(job_results_getter, redis.hgetall)
-      table.insert(job_results_args, {MRRESULTS .. name .. ":" .. job})
-   end
-
-   if #jobs > 0 then
-      res = async.fiber.wait(job_results_getter, job_results_args)
-   else
-      res = {}
-   end
-
-   local results = {}
-   for i,jobHash in ipairs(jobs) do
-      local results_entry = {}
-      for j=1,#res[i][1],2 do
-         results_entry[res[i][1][j]] = res[i][1][j+1]
-      end
-      results[jobHash] = results_entry
-   end
-
-   local job_table = {table.concat(top_entry)}
-
-   for i,jobHash in ipairs(jobs) do
-      local row_entry = {}
-      table.insert(row_entry, "<tr><td>" .. jobHash .. "</td><td>" .. progress[jobHash] .. "</td>")
-      for j=1,nqueues do
-         local qname = MRQUEUE .. j .. ":" .. name 
-         table.insert(row_entry, "<td>" .. (results[jobHash][qname] or "PENDING" ).. "</td>")
-      end
-      table.insert(row_entry,"</tr>")
-      table.insert(job_table, table.concat(row_entry))
-   end
-  
-   table.insert(job_table, "</table>")
- 
-   job_table = table.concat(job_table)
-   return queuetable  .. job_table
+--   -- show job progress and results so far
+--   local jobs = {}
+--   local progress = {}
+--
+--   for i=1,#progress_ar,2 do
+--      table.insert(jobs, progress_ar[i])
+--      progress[progress_ar[i]] = progress_ar[i+1]
+--   end
+--
+--
+--   local job_results_getter = {}
+--   local job_results_args = {}
+--
+--   local top_entry = {"<table><tr><th>Job</th><th>Progress</th>"}
+--   for i=1,nqueues do 
+--      table.insert(top_entry,"<th>" ..  MRQUEUE .. i .. ":" .. name .."</th>")
+--   end
+--   table.insert(top_entry,"</tr>")
+--   
+--
+--   for i,job in ipairs(jobs) do
+--      table.insert(job_results_getter, redis.hgetall)
+--      table.insert(job_results_args, {MRRESULTS .. name .. ":" .. job})
+--   end
+--
+--   if #jobs > 0 then
+--      res = async.fiber.wait(job_results_getter, job_results_args)
+--   else
+--      -- TODO: actually just don't render job table if no jobs
+--      res = {}
+--   end
+--
+--   local results = {}
+--   for i,jobHash in ipairs(jobs) do
+--      local results_entry = {}
+--      for j=1,#res[i][1],2 do
+--         results_entry[res[i][1][j]] = res[i][1][j+1]
+--      end
+--      results[jobHash] = results_entry
+--   end
+--
+--   local job_table = {table.concat(top_entry)}
+--
+--   for i,jobHash in ipairs(jobs) do
+--      local row_entry = {}
+--      table.insert(row_entry, "<tr><td>" .. jobHash .. "</td><td>" .. progress[jobHash] .. "</td>")
+--      for j=1,nqueues do
+--         local qname = MRQUEUE .. j .. ":" .. name 
+--         table.insert(row_entry, "<td>" .. (results[jobHash][qname] or "PENDING" ).. "</td>")
+--      end
+--      table.insert(row_entry,"</tr>")
+--      table.insert(job_table, table.concat(row_entry))
+--   end
+--  
+--   table.insert(job_table, "</table>")
+-- 
+--   job_table = table.concat(job_table)
+--   return queuetable  .. job_table
+   return queuetable
 
 end
 
