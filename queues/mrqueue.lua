@@ -150,20 +150,21 @@ local evals = {
       local results = KEYS[5]
       local mrconfig = KEYS[6]
 
+      local queuecount = redis.call('hget', mrconfig, "nqueues")
       local jobExists = redis.call('hget', jobmatch, jobHash)
 
       if jobExists then
          local progcount = redis.call('hget', progress, jobHash) 
-         if progcount and tonumber(progcount) >= 0 then
+         if progcount and tonumber(progcount) >= 0 and tonumber(progcount) < queuecount then
             redis.call('hset', waiting, jobHash, jobJson)
             redis.call('publish', chann, jobName)
             return
+         else
+            redis.call('hset', jobmatch, jobHash, jobJson)
          end
       else
          redis.call('hset', jobmatch, jobHash, jobJson)
       end
-
-      local queuecount = redis.call('hget', mrconfig, "nqueues")
 
       if priority == "INC" then 
          for i=1,queuecount do
