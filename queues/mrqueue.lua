@@ -70,7 +70,15 @@ local evals = {
                redis.call('hset', results, subqueuename, '{"result":"FAILURE","info":{"reason":"DEADWORKER"}}')
 
                if remaining == 0 then
-                  redis.call('zincrby', reducequeue, -1, jobHash)
+
+                  local t,u,priority = cleanupJob:find('\"priority\":(%d+),')
+
+                  if priority then
+                     priority = tonumber(priority)
+                     redis.call('zadd', reducequeue, priority, jobHash)
+                  else
+                     redis.call('zincrby', reducequeue, -1, jobHash)
+                  end
                   redis.call('publish', chann, jobName)
                end
             end
@@ -315,6 +323,12 @@ local evals = {
       local job = redis.call('hget', runningJobs, workername)
 
       local failureHash = queue .. ":" .. jobHash
+
+      local x,y,priority = job:find('\"priority\":(%d+),')
+
+      if priority then 
+         priority = tonumber(priority)
+      end
       
       if progcount and tonumber(progcount) == -1 then
          redis.call('hset', failedJobs, failureHash, job)
@@ -325,7 +339,11 @@ local evals = {
          redis.call('hset', results,  subqueuename, '{"result":"FAILURE","info":{"reason":"' .. errormessage .. '"}}')
             
          if progcount and tonumber(progcount) == 0 then
-            redis.call('zincrby', reducequeue, -1, jobHash)
+            if priority then
+               redis.call('zadd', reducequeue, priority, jobHash)
+            else
+               redis.call('zincrby', reducequeue, -1, jobHash)
+            end
             redis.call('publish', chann, "REDUCE")
          end
       end
@@ -381,7 +399,18 @@ local evals = {
 
       if curprog == 0 then
          if success then
-            redis.call('zincrby', reducequeue, -1, jobHash)
+
+            local job = redis.call('hget', jobs, jobHash)
+
+            local x,y,priority = job:find('\"priority\":(%d+),')
+
+            if priority then
+               priority = tonumber(priority)
+               redis.call('zadd', reducequeue, priority, jobHash)
+            else
+               redis.call('zincrby', reducequeue, -1, jobHash)
+            end
+
             redis.call('publish', chann, jobName)
          end
 
