@@ -150,7 +150,7 @@ local evals = {
       local results = KEYS[5]
       local mrconfig = KEYS[6]
 
-      local queuecount = redis.call('hget', mrconfig, "nqueues")
+      local queuecount = tonumber(redis.call('hget', mrconfig, "nqueues"))
       local jobExists = redis.call('hget', jobmatch, jobHash)
 
       if jobExists then
