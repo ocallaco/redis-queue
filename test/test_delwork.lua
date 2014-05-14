@@ -11,7 +11,7 @@ end
 
 tester.generateJob = function(worker)
    local i = worker.index
-   local jobDescriptor = {TAG = {
+   local jobDescriptor = {INSTAGRAM = {
       testJob = function(args) 
          local jobtime = Date(args['time'])
          print("Worker " .. worker.name .. " received ", args)

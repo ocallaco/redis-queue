@@ -18,9 +18,9 @@ fiber(function()
          print("test start")
 
          for i = 15,1,-1 do
-            queue:enqueueJob("TAG", "testJob", {a = 1, b = "test", testnumber = i, time = os.time() + (i * 1) }, {jobHash = i, timestamp = os.time() + (i * 1)})
-            queue:enqueueJob("TAG", "testJob", {a = 1, b = "test", testnumber = i + 15, time = os.time() + (i * 1) }, {jobHash = i + 15, timestamp = os.time() + (i * 1)})
-            queue:enqueueJob("TAG", "testJob", {a = 1, b = "test", testnumber = i + 30, time = os.time() + (i * 1) }, {jobHash = i + 30, timestamp = os.time() + (i * 1)})
+            queue:enqueueJob("INSTAGRAM", "testJob", {a = 1, b = "test", testnumber = i, time = os.time() + (i * 1) }, {jobHash = i, timestamp = os.time() + (i * 1)})
+            queue:enqueueJob("INSTAGRAM", "testJob", {a = 1, b = "test", testnumber = i + 15, time = os.time() + (i * 1) }, {jobHash = i + 15, timestamp = os.time() + (i * 1)})
+            queue:enqueueJob("INSTAGRAM", "testJob", {a = 1, b = "test", testnumber = i + 30, time = os.time() + (i * 1) }, {jobHash = i + 30, timestamp = os.time() + (i * 1)})
          end
       end)
       

@@ -24,6 +24,7 @@ function RedisQueueConfig.meta:__index(key)
    return RedisQueueConfig[key]
 end
 
+--TODO: add reserved field for enqueue timeout
 
 -- sample_config = {
 --    "TEST1" = STANDARD_QUEUE,
@@ -31,7 +32,7 @@ end
 -- }
 
 -- valid queue cannot contain any non alphanumeric chars
-function RedisQueueConfig:setConfig(config)
+function RedisQueueConfig:setConfig(config, cb)
    local queueEntries = {}
    for queue,qType in pairs(config) do
       if queue:find("%W") then
@@ -62,7 +63,7 @@ function RedisQueueConfig:setConfig(config)
       redis.call('del', config_addr)
       return redis.call('hmset', config_addr, unpack(queueEntries))
 
-   ]], 1, QCONFIG, queueEntries)
+   ]], 1, QCONFIG, queueEntries, cb)
 
 end
 

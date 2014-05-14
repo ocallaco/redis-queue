@@ -60,8 +60,23 @@ function queuefactory:newqueue(name, queueType)
    queue.enqueue = function(jobName, args, cb)
       local jobArgs = args.jobArgs
       checkArgs(jobArgs)
+
+      local callback = cb
+      if self.environment.enqueueTimeout ~= 0 then
+         local enqueuejobtimeout = async.setTimeout(self.environment.enqueueTimeout or 10000, function() 
+            local error_string = "Redis Queue Timed out enqueueing:\nJobName: " ..  tostring(jobName) .. "\nQueueName: " .. queue.name
+            error(error_string)
+         end)
+
+         callback = function(res)
+            enqueuejobtimeout:clear()
+            if cb then 
+               cb(res)
+            end
+         end
+      end
       
-      queueType.enqueue(queue, jobName, args, cb)
+      queueType.enqueue(queue, jobName, args, callback)
    end
 
    queue.reenqueue = function(failureId, jobJson, cb)
