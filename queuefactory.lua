@@ -44,6 +44,7 @@ function queuefactory:newqueue(name, queueType)
    end
 
    queue.subscribe = function(jobs, cb)   
+      queue.state = "Subscribing"
       if queue.environment == nil or queue.environment.subscriber == nil then
          error('Environment not ready for subscription -- either not inited or subscription connection not opened yet')
       end
@@ -54,6 +55,7 @@ function queuefactory:newqueue(name, queueType)
    queue.donesubscribing = function(cb)
       queue.waiting = true
       queue.dequeueAndRun()
+      queue.state = "Ready"
       if cb then cb() end
    end
 

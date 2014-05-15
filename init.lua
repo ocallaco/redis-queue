@@ -225,6 +225,15 @@ function RedisQueue:new(redis, cb)
       end
    end)
 
+   newqueue.getstatus = function()
+      local status_table = {}
+      for queuename,queue in pairs(newqueue.queues) do
+         status_table[queuename] = queue.state
+      end
+
+      return status_table
+   end
+
    return newqueue
 end
 
