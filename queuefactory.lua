@@ -67,7 +67,8 @@ function queuefactory:newqueue(name, queueType)
       if self.environment.enqueueTimeout ~= 0 then
          local enqueuejobtimeout = async.setTimeout(self.environment.enqueueTimeout or 60000, function() 
             local error_string = "Redis Queue Timed out enqueueing:\nJobName: " ..  tostring(jobName) .. "\nQueueName: " .. queue.name
-            error(error_string)
+--            error(error_string)
+            print(error_string) -- not erroring until we have things stable
          end)
 
          callback = function(res)
