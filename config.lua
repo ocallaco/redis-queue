@@ -5,11 +5,13 @@ local STANDARD_QUEUE = "QUEUE"
 local LOADBAL_QUEUE = "LBQUEUE"
 local DELAYED_QUEUE = "DELQUEUE"
 local MAPREDUCE_QUEUE = "MRQUEUE"
+local MAPREDUCE_BQUEUE = "MRBQUEUE"
 
 local regqueue = require 'redis-queue.regqueue'
 local lbqueue = require 'redis-queue.lbqueue'
 local delqueue = require 'redis-queue.delqueue'
 local mrqueue = require 'redis-queue.mrqueue'
+local mrbqueue = require 'redis-queue.mrbqueue'
 
 local queueTypes = {}
 
@@ -17,6 +19,7 @@ queueTypes[STANDARD_QUEUE] = regqueue
 queueTypes[LOADBAL_QUEUE] = lbqueue
 queueTypes[DELAYED_QUEUE] = delqueue
 queueTypes[MAPREDUCE_QUEUE] = mrqueue
+queueTypes[MAPREDUCE_BQUEUE] = mrbqueue
 
 
 RedisQueueConfig = {meta = {}}

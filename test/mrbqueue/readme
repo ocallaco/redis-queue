@@ -1,0 +1,29 @@
+Map Reduce Queue Should:
+
+when jobs are enqueued only once:
+   run all maps and 1 reduce
+
+when jobs are enqueue multiple times:
+   run all maps and 1 reduce at least 2 times, all the same number (not run 3 maps but only 2 reduces)
+
+when maps throw error:
+   reduce increments on progress, 
+   trigger reduce job if progress reaches 0
+   fill in error code into results
+   not have job show in main error list
+
+when maps crash worker.  on startup:
+   reduce increments on progress, 
+   trigger reduce job if progress reaches 0
+   fill in error code into results
+   not have job show in main error list -- tougher to do for now
+
+when reduce throws error, or crashes and starts back up:
+   reduce error should be in the running errors
+   
+
+progress should end up empty
+results should end up empty
+jobs should end up empty
+assignment should end up empty
+waiting should end up empty

@@ -17,7 +17,7 @@ local x = 0
 
 tester.generateJob = function(worker)
    local i = worker.index
-   local jobDescriptor = {MRSIM = {
+   local jobDescriptor = {MRBSIM = {
       testJob = {
          map= function(args) 
 
@@ -27,8 +27,8 @@ tester.generateJob = function(worker)
             --table.insert(tester.jobLog[args.testnumber], "MAP SUCCESS") 
             
             if x % 13 > 9 then
-               error("ERROR!")
-               --os.exit()
+               --error("ERROR!")
+               os.exit()
             end
          end,
          reduce = function(args, results) 
@@ -41,15 +41,15 @@ tester.generateJob = function(worker)
             end
             table.insert(tester.jobLog[args.testnumber], "REDUCE " .. table.concat(resultWork))
             print("REDUCE", args.testnumber, results)   
-            if x % 7 == 3 then
-               os.exit()
-            end
+--            if x % 7 == 3 then
+--               os.exit()
+--            end
          end,
       },
-      config = {skip = true, nodenum = ((i % 8) + 1)}
+      config = {skip = true, nodenum = ((i % 4) + 1)}
    }}
 
-   print("NODE NUM", ((i % 8) + 1))
+   print("NODE NUM", ((i % 4) + 1))
 
 return jobDescriptor
 end
@@ -64,15 +64,15 @@ tester.evaluateCode = function(i, client)
          print("JOB " .. j, tester.jobLog[j])
       end
       -- check to see that queue variables aren't messed up
-      client.zcard("MRQUEUE:0:MRSIM", function(res) print("ZCARD MRQUEUE:0:MRSIM",res,0) end) 
-      client.zcard("MRQUEUE:1:MRSIM", function(res) print("ZCARD MRQUEUE:1:MRSIM",res,0) end) 
-      client.zcard("MRQUEUE:2:MRSIM", function(res) print("ZCARD MRQUEUE:2:MRSIM",res,0) end) 
-      client.zcard("MRQUEUE:3:MRSIM", function(res) print("ZCARD MRQUEUE:3:MRSIM",res,0) end) 
-      client.zcard("MRQUEUE:4:MRSIM", function(res) print("ZCARD MRQUEUE:4:MRSIM",res,0) end) 
-      client.hlen("MRWAITING:MRSIM", function(res) print("MRWAITING:MRSIM", res, 0) end)
-      client.hlen("MRJOBS:MRSIM", function(res) print("MRJOBS:MRSIM", res, 0) end)
-      client.hlen("MRPROGRESS:MRSIM", function(res) print("MRPROGRESS:MRSIM", res, 0) end)
-      client.hlen("MRRESULTS:MRSIM", function(res) print("MRRESULTS:MRSIM", res, 0) end)
+      client.zcard("MRBQUEUE:0:MRBSIM", function(res) print("ZCARD MRBQUEUE:0:MRBSIM",res,0) end) 
+      client.zcard("MRBQUEUE:1:MRBSIM", function(res) print("ZCARD MRBQUEUE:1:MRBSIM",res,0) end) 
+      client.zcard("MRBQUEUE:2:MRBSIM", function(res) print("ZCARD MRBQUEUE:2:MRBSIM",res,0) end) 
+      client.zcard("MRBQUEUE:3:MRBSIM", function(res) print("ZCARD MRBQUEUE:3:MRBSIM",res,0) end) 
+      client.zcard("MRBQUEUE:4:MRBSIM", function(res) print("ZCARD MRBQUEUE:4:MRBSIM",res,0) end) 
+      client.hlen("MRBWAITING:MRBSIM", function(res) print("MRBWAITING:MRBSIM", res, 0) end)
+      client.hlen("MRBJOBS:MRBSIM", function(res) print("MRBJOBS:MRBSIM", res, 0) end)
+      client.hlen("MRBPROGRESS:MRBSIM", function(res) print("MRBPROGRESS:MRBSIM", res, 0) end)
+      client.hlen("MRBRESULTS:MRBSIM", function(res) print("MRBRESULTS:MRBSIM", res, 0) end)
       
 
    end

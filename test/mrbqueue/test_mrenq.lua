@@ -18,7 +18,7 @@ fiber(function()
          print("test start")
 
          for i = 1,200 do
-            queue:enqueueJob("MRSIM", "testJob", {a = 1, b = "test", testnumber = (i % 25) + 1 }, {jobHash = tostring((i % 25) + 1), priority = 1234}, function(res) print("ENQUEUED " .. ((i % 25) + 1), res)end)
+            queue:enqueueJob("MRBSIM", "testJob", {a = 1, b = "test", testnumber = (i % 25) + 1 }, {jobHash = tostring((i % 25) + 1), priority = 1234}, function(res) print("ENQUEUED " .. ((i % 25) + 1))end)
          end
       end)
       
