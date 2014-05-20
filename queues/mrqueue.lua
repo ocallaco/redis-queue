@@ -373,7 +373,6 @@ local evals = {
       if success then
          redis.call('hset', results, myqueue, '{"result":"SUCCESS"}')
          curprog = redis.call('hincrby', progress, jobHash, -1)
-         print("PROGRESS", curprog)
       else 
          curprog = tonumber(redis.call('hget', progress, jobHash))
       end
