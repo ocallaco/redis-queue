@@ -125,7 +125,7 @@ function RedisQueue:enqueueJob(queueName, jobName, jobArgs, moreArgs, cb)
 end
 
 -- these enqueues are here for backwards compatibility
-function RedisQueue:enqueue(queueName, jobName, argtable, jobHash)
+function RedisQueue:enqueue(queueName, jobName, argtable, jobHash, cb)
    local queue = self.queues[queueName]
    queue.enqueue(jobName, {jobArgs = argtable, jobHash = jobHash}, cb)
 end
