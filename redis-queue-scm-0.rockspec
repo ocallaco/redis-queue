@@ -17,7 +17,9 @@ A redis queue framework using async redis
 
 dependencies = {
    "sys >= 1.0",
-   "redis-async"
+   "async",
+   "redis-async",
+   "cjson"
 }
 
 build = {
