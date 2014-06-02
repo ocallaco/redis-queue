@@ -11,10 +11,18 @@ Queue Types:
 
    DELQueue: a delayed queue that will run a job at a set time in the future.  When a job is enqueued without a timestamp, it is set to run immediately.  If identical jobs are enqueued with different timestamps, both jobs will run.  If identical jobs are enqueued with the same timestamp, only one will run.
 
-License
--------
+Prerequisites:
+----------
 
-MIT License
+* Redis (http://redis.io)
+* Torch (http://torch.ch)
+* Luarocks
+
+In Rockspec:
+
+* Async
+* Redis-async
+* CJSON
 
 Examples
 --------
@@ -65,13 +73,19 @@ end)
 In this case, you need to have a hash in redis with the key "RESERVED:QCONFIG", matching "QUEUENAME" to a queue type for instance:
 
 ```
+redis 127.0.0.1:6379> hset RESERVED:QCONFIG QUEUENAME QUEUE
+(integer) 1
+redis 127.0.0.1:6379> hset RESERVED:QCONFIG USER LBQUEUE
+(integer) 1
+redis 127.0.0.1:6379> hset RESERVED:QCONFIG TAG DELQUEUE
+(integer) 1
 redis 127.0.0.1:6379> hgetall RESERVED:QCONFIG
 1) "QUEUENAME"
 2) "QUEUE"
 3) "USER"
 4) "LBQUEUE"
-7) "TAG"
-8) "DELQUEUE"
+5) "TAG"
+6) "DELQUEUE"
 ```
 
 Enqueuing a Regular job:
@@ -90,4 +104,8 @@ LBQUEUE: *jobHash priority
 DELQUEUE: *jobHash timestamp
 
 
+License
+-------
+
+MIT License
 
