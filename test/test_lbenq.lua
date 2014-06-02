@@ -1,3 +1,8 @@
+---
+--- Load-balancing enqueueing test
+--- Run alongside test_lbwork.lua
+---
+
 local q = require 'redis-queue'
 local rc = require 'redis-async'
 

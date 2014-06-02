@@ -1,3 +1,7 @@
+---
+--- Load-balancing workers test
+--- Run alongside test_lbenq.lua
+---
 local tester = require './consume_template'
 
 tester.prepareEnvironment = function()
