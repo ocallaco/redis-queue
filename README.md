@@ -90,17 +90,21 @@ redis 127.0.0.1:6379> hgetall RESERVED:QCONFIG
 
 Enqueuing a Regular job:
 ```lua
-redis_queue:enqueueJob("QUEUENAME", "myJob1", {var1 = "test", var2 = 5, var3 = "another variable}, {jobHash = "test"}, callback)
+redis_queue:enqueueJob("QUEUENAME", "myJob1", {var1 = "test", var2 = 5, var3 = "another variable"}, {jobHash = "test"}, callback)
 
 ```
 
 the arguments are the name of the queue, the name of the job, the arguments for the job, additional args, and a callback.
 
 additional args:
-(* denotes required
+(* denotes required)
 
 QUEUE:  jobHash
+
+
 LBQUEUE: *jobHash priority
+
+
 DELQUEUE: *jobHash timestamp
 
 
