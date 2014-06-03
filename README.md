@@ -5,7 +5,7 @@ A system for organizing execution of jobs using redis and async.  Because of red
 
 Queue Types:
 
-   Queue: simple FIFO queue.  If job is given a jobHash, it will be ignored
+   Queue: simple FIFO queue.  If job is given a jobHash, it will overwrite any job of the same hash.
    
    LBQueue: balanced to allow jobs to have a priority.  Requires a jobHash, with optional priority.  When no priority is given, priority is determined by the number of jobs with identical jobHashes on the queue.  Otherwise, priority is the priority of the most recently enqueued job of the same priority.  If a job is enqueued while another worker is performing that job, it will be added to a waiting list and added to the queue again when that job completes (to allow for non-simultaneous running of identical jobs)
 
