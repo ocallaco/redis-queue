@@ -19,7 +19,7 @@ dependencies = {
    "sys >= 1.0",
    "async",
    "redis-async",
-   "cjson"
+   "redis-status",
 }
 
 build = {
