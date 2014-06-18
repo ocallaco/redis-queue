@@ -201,13 +201,22 @@ function RedisQueue:close()
    end
 end
 
-function RedisQueue:new(redis, cb)
+function RedisQueue:new(redis, options, cb)
+
+   if type(options) == 'function' then 
+      cb = options 
+      options = {}
+   end
+
    local newqueue = {}
 
    newqueue.redis = redis
    newqueue.jobs = {}
    newqueue.config = qc(redis)
    newqueue.queues = {}
+
+   newqueue.enqueueTimeout = options.enqueueTimeout
+   newqueue.timeoutError = options.timeoutError or false
 
    setmetatable(newqueue, RedisQueue.meta)
 

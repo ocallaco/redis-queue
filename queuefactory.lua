@@ -1,6 +1,8 @@
 local json = require 'cjson'
 local async = require 'async'
 
+local status = require 'redis-status.api'
+
 local queuefactory = {}
 
 local ILLEGAL_ARGS = {
@@ -44,6 +46,7 @@ function queuefactory:newqueue(name, queueType)
    end
 
    queue.subscribe = function(jobs, cb)   
+      status.writeStatus({state = "Subscribing"})
       queue.state = "Subscribing"
       if queue.environment == nil or queue.environment.subscriber == nil then
          error('Environment not ready for subscription -- either not inited or subscription connection not opened yet')
@@ -55,6 +58,7 @@ function queuefactory:newqueue(name, queueType)
    queue.donesubscribing = function(cb)
       queue.waiting = true
       queue.dequeueAndRun()
+      status.writeStatus({state = "Ready"})
       queue.state = "Ready"
       if cb then cb() end
    end
@@ -67,8 +71,11 @@ function queuefactory:newqueue(name, queueType)
       if self.environment.enqueueTimeout ~= 0 then
          local enqueuejobtimeout = async.setTimeout(self.environment.enqueueTimeout or 60000, function() 
             local error_string = "Redis Queue Timed out enqueueing:\nJobName: " ..  tostring(jobName) .. "\nQueueName: " .. queue.name
---            error(error_string)
-            print(error_string) -- not erroring until we have things stable
+            if self.environment.timeoutError then
+               error(error_string)
+            else
+               print(error_string) -- not erroring until we have things stable
+            end
          end)
 
          callback = function(res)
@@ -103,12 +110,14 @@ function queuefactory:newqueue(name, queueType)
       -- need to set this before pulling a job off the queue to ensure one job at a time
       queue.busy = true
 
+      status.writeStatus({state = "Dequeuing"})
       queue.workerstate = "Dequeuing job"
 
       queueType.dequeue(queue, function(res)
 
          if res then
             async.pcall(async.fiber(function()
+               status.writeStatus({state = "Running"})
                queue.state = "Running:" .. res.name
                
                local jobresult
@@ -132,7 +141,8 @@ function queuefactory:newqueue(name, queueType)
                end)
 
                queue.cleanup({response = res, jobresult = jobresult, jobHash = res.hash, jobName = res.name, success = jobsuccess}, res)
- 
+               
+               status.writeStatus({state = "Ready"})
                queue.state = "Ready"
                queue.busy = false
 
@@ -144,6 +154,7 @@ function queuefactory:newqueue(name, queueType)
          else
             queue.busy = false
             queue.waiting = false
+            status.writeStatus({state = "Ready"})
             queue.state = "Ready"
          end
       end)
