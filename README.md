@@ -7,7 +7,7 @@ Queue Types:
 
    Queue: simple FIFO queue.  If job is given a jobHash, it will overwrite any job of the same hash.
    
-   LBQueue: balanced to allow jobs to have a priority.  Requires a jobHash, with optional priority.  When no priority is given, priority is determined by the number of jobs with identical jobHashes on the queue.  Otherwise, priority is the priority of the most recently enqueued job of the same priority.  If a job is enqueued while another worker is performing that job, it will be added to a waiting list and added to the queue again when that job completes (to allow for non-simultaneous running of identical jobs)
+   LBQueue: balanced to allow jobs to have a priority.  Requires a jobHash, with optional priority.  When no priority is given, priority is incremented -- so enqueing the same job multiple times will increase its priority.  Otherwise, priority is the priority of the most recently enqueued job of the same priority.  If a job is enqueued while another worker is performing that job, it will be added to a waiting list and added to the queue again when that job completes (to allow for non-simultaneous running of identical jobs)
 
    DELQueue: a delayed queue that will run a job at a set time in the future.  When a job is enqueued without a timestamp, it is set to run immediately.  If identical jobs are enqueued with different timestamps, both jobs will run.  If identical jobs are enqueued with the same timestamp, only one will run.
 
