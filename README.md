@@ -7,24 +7,24 @@ Queues are managed through lua scripts executed on the redis, with workers subsc
 
 Queue Types:
 
-   Queue: 
-      * simple FIFO queue.  
-      * If job is given a jobHash, it will overwrite any job of the same hash.
+*Queue:* 
+* simple FIFO queue.  
+* If job is given a jobHash, it will overwrite any job of the same hash.
    
-   LBQueue: 
-      * Balanced to allow jobs to have a user-defined priority.  
-      * Requires a jobHash, with optional priority. 
-      * Jobs with identical hashes will never be executed simultaneously.
-         * If not running, will overwrite existing job on queue with new priority
-         * If running, will wait until execution of existing job completes before being added to queue
-      * When no priority is given, priority is incremented (multiple enqueues of the same job will move it up the queue)
+*LBQueue:* 
+* Balanced to allow jobs to have a user-defined priority.  
+* Requires a jobHash, with optional priority. 
+* Jobs with identical hashes will never be executed simultaneously.
+* If not running, will overwrite existing job on queue with new priority
+* If running, will wait until execution of existing job completes before being added to queue
+* When no priority is given, priority is incremented (multiple enqueues of the same job will move it up the queue)
 
-   DELQueue: 
-      * A delayed queue that will run a job at a set time in the future.  
-      * Requires a jobHash
-      * When a job is enqueued without a timestamp, it is set to run immediately.  
-      * If jobs with the same hash are enqueued with different timestamps, both jobs will run at their chosen times. 
-      * If jobs with the same hash are enqueued with the same timestamp, only one will run.
+*DELQueue:*
+* A delayed queue that will run a job at a set time in the future.  
+* Requires a jobHash
+* When a job is enqueued without a timestamp, it is set to run immediately.  
+* If jobs with the same hash are enqueued with different timestamps, both jobs will run at their chosen times. 
+* If jobs with the same hash are enqueued with the same timestamp, only one will run.
 
 Prerequisites:
 ----------
