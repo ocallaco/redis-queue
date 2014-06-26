@@ -1,15 +1,30 @@
 Redis-queue
 -------
 
-A system for organizing execution of jobs using redis and async.  Because of redis's support for lua scripting, there's no need for a sentinel process to coordinate workers.  Because the system uses async, workers don't need to poll the db -- they subscribe to redis channels that wake them whenever a new task is ready for execution.
+A system for organizing execution of jobs using redis and async (https://github.com/clementfarabet/async).
+
+Queues are managed through lua scripts executed on the redis, with workers subscribing to pub/sub channels to wake them up when new work is available.
 
 Queue Types:
 
-   Queue: simple FIFO queue.  If job is given a jobHash, it will overwrite any job of the same hash.
+   Queue: 
+      * simple FIFO queue.  
+      * If job is given a jobHash, it will overwrite any job of the same hash.
    
-   LBQueue: balanced to allow jobs to have a priority.  Requires a jobHash, with optional priority.  When no priority is given, priority is incremented -- so enqueing the same job multiple times will increase its priority.  Otherwise, priority is the priority of the most recently enqueued job of the same priority.  If a job is enqueued while another worker is performing that job, it will be added to a waiting list and added to the queue again when that job completes (to allow for non-simultaneous running of identical jobs)
+   LBQueue: 
+      * Balanced to allow jobs to have a user-defined priority.  
+      * Requires a jobHash, with optional priority. 
+      * Jobs with identical hashes will never be executed simultaneously.
+         * If not running, will overwrite existing job on queue with new priority
+         * If running, will wait until execution of existing job completes before being added to queue
+      * When no priority is given, priority is incremented (multiple enqueues of the same job will move it up the queue)
 
-   DELQueue: a delayed queue that will run a job at a set time in the future.  When a job is enqueued without a timestamp, it is set to run immediately.  If identical jobs are enqueued with different timestamps, both jobs will run.  If identical jobs are enqueued with the same timestamp, only one will run.
+   DELQueue: 
+      * A delayed queue that will run a job at a set time in the future.  
+      * Requires a jobHash
+      * When a job is enqueued without a timestamp, it is set to run immediately.  
+      * If jobs with the same hash are enqueued with different timestamps, both jobs will run at their chosen times. 
+      * If jobs with the same hash are enqueued with the same timestamp, only one will run.
 
 Prerequisites:
 ----------
