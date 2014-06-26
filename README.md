@@ -15,8 +15,8 @@ Queue Types:
 * Balanced to allow jobs to have a user-defined priority.  
 * Requires a jobHash, with optional priority. 
 * Jobs with identical hashes will never be executed simultaneously.
-* If not running, will overwrite existing job on queue with new priority
-* If running, will wait until execution of existing job completes before being added to queue
+  * If not running, will overwrite existing job on queue with new priority
+  * If running, will wait until execution of existing job completes before being added to queue
 * When no priority is given, priority is incremented (multiple enqueues of the same job will move it up the queue)
 
 *DELQueue:*
