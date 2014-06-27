@@ -6,6 +6,10 @@ local fiber = require 'async.fiber'
 
 local redis_addr = {host='127.0.0.1', port=6379}
 
+-- dont print out the status messages
+local status = require 'redis-status.api'
+status.writeStatus = function() end
+
 local tester = {}
 
 
@@ -15,6 +19,7 @@ local tester = {}
 --
 
 tester.nWorkers = 10
+tester.eval_timeout = 15000
 
 tester.prepareEnvironment = function()
 end
@@ -63,17 +68,27 @@ tester.run = function()
                worker.queue:registerWorker(redis_addr, jobDescriptor, function()
                   print("test start " .. i)
 
-                  async.setTimeout(15000, function()
-                     tester.evaluateCode(i, client)
-                  end)
+                  if tester.eval_timeout and tester.eval_timeout > 0 then
+                     async.setTimeout(tester.eval_timeout, function()
+                        tester.evaluateCode(i, client)
+                     end)
 
-                  async.setTimeout(16000, function()
-                     print(worker.name .. " closing")
-                     client.close()
-                     worker.queue:close()
-
-
-                  end)
+                     async.setTimeout(tester.eval_timeout + 1000, function()
+                        print(worker.name .. " closing")
+                        worker.queue:close()
+                        client.close()
+                     end)
+                  else
+                     evaluate = function()
+                        tester.evaluateCode(i, client)
+                     end
+                     die = function()
+                        print(worker.name .. " closing")
+                        client.close()
+                        worker.queue:close()
+                     end
+                  end
+                  
                end)
             end)
          end)

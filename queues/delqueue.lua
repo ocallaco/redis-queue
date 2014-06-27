@@ -11,10 +11,11 @@ local WAITSTRING = "RESERVED_MESSAGE_WAIT" -- indicates that delayed queue has n
 local evals = {
 
    -- make this smarter so it removed job from LBJOBS if there's nothing waiting
-   startup = function(queue)
+   startup = function(queue, cb)
       local script = [[
          local queueName = KEYS[1]
          local jobmatch = KEYS[2]
+         local chann = KEYS[3]
 
          local cleanupPrefix= ARGV[1]
 
@@ -29,24 +30,31 @@ local evals = {
             local x,y,firstpart,jobName,lastpart = rehashedJob:find('(.*"name":")(.-)(".*)')
             local renamedJob = firstpart .. "FAILURE:" .. jobName .. lastpart
             
-            redis.call('hdel', jobmatch, jobHash)
+            redis.call('hset', jobmatch, "FAILURE:" .. jobHash, renamedJob)
+            redis.call('zadd', queueName, 0, "FAILURE:" .. jobHash)
+            redis.call('publish', chann, 0)
          end
 
          redis.call('del', cleanupName)
+
+         return redis.call("time")[1]
       ]]
-      return script, 2, DELQUEUE .. queue, DELJOBS .. queue, common.CLEANUP, cb
+      return script, 3, DELQUEUE .. queue, DELJOBS .. queue, DELCHANNEL .. queue, common.CLEANUP, cb
    end,
    
    
    -- like an lb queue, but without worrying about collisions -- the jobhash is the scheduled time and the job's unique hash
    -- to allow multiple identical jobs to be scheduled
    -- TODO: add cleanup work
-   delenqueue = function(queue, jobJson, jobName, jobHash, scheduletime, cb)
+   delenqueue = function(queue, jobJson, jobName, jobHash, timeout, redis_time, cb)
       local script = [[
       local jobJson = ARGV[1]
       local jobName = ARGV[2]
       local jobHash = ARGV[3]
-      local scheduletime = ARGV[4]
+      local timeout = ARGV[4]
+      local redis_time = ARGV[5]
+
+      local scheduletime = redis_time + timeout
 
       jobHash = scheduletime .. "|" .. jobHash
 
@@ -58,10 +66,10 @@ local evals = {
 
       if jobExists == 1 then
          redis.call('zadd', queue, tonumber(scheduletime), jobHash)
-         redis.call('publish', chann, scheduletime)
+         redis.call('publish', chann, timeout)
       end
       ]] 
-      return  script, 3, DELQUEUE .. queue, DELCHANNEL .. queue, DELJOBS .. queue, jobJson, jobName, jobHash, scheduletime, cb
+      return  script, 3, DELQUEUE .. queue, DELCHANNEL .. queue, DELJOBS .. queue, jobJson, jobName, jobHash, timeout, redis_time, cb
 
    end,
 
@@ -70,7 +78,6 @@ local evals = {
       local jobJson = ARGV[1] 
       local jobHash = ARGV[2] 
       local failureHash = ARGV[3] 
-      local currenttime = ARGV[4]
 
       local queue = KEYS[1] 
       local chann = KEYS[2] 
@@ -79,23 +86,23 @@ local evals = {
       local failedError = KEYS[5] 
       local failedTime = KEYS[6] 
 
-      jobHash = currenttime .. "|" .. jobHash 
+      jobHash = 0 .. "|" .. jobHash 
 
-      redis.call('zadd', queue, currenttime, jobHash)
+      redis.call('zadd', queue, 0, jobHash)
       redis.call('hset', jobmatch, jobHash, jobJson)
 
-      redis.call('publish', chann, currenttime)
+      redis.call('publish', chann, 0)
       redis.call('hdel', failed, failureHash) 
       redis.call('hdel', failedError, failureHash) 
       redis.call('zrem', failedTime, failureHash) 
 
       ]] 
-      return  script, 6, DELQUEUE .. queue, DELCHANNEL .. queue, DELJOBS .. queue, common.FAILED, common.FAILED_ERROR, common.FAILEDTIME, jobJson, jobHash, failureHash, os.time(), cb
+      return  script, 6, DELQUEUE .. queue, DELCHANNEL .. queue, DELJOBS .. queue, common.FAILED, common.FAILED_ERROR, common.FAILEDTIME, jobJson, jobHash, failureHash, cb
 
    end,
 
    -- dequeue any job that's ready to run, otherwise, return the time of the next job to run (or nil if there are none scheduled)
-   deldequeue = function(queue, workername, cb)
+   deldequeue = function(queue, workername, offset, cb)
       script = [[
       local queue = KEYS[1]
       local jobs = KEYS[2]
@@ -117,18 +124,18 @@ local evals = {
          redis.call('hset', running, workername, topJob)
          redis.call('hset', runningSince, workername, currenttime)
 
-         return {topJob, jobswaiting[4]}
+         return {topJob, jobswaiting[4] and (jobswaiting[4] - currenttime)}
       else
-         return {waitstring, jobswaiting[2]}
+         return {waitstring, jobswaiting[2] - currenttime}
       end
 
       ]]
 
-      return script, 4, DELQUEUE .. queue, DELJOBS .. queue, common.RUNNING, common.RUNNINGSINCE, workername, WAITSTRING, os.time(), cb
+      return script, 4, DELQUEUE .. queue, DELJOBS .. queue, common.RUNNING, common.RUNNINGSINCE, workername, WAITSTRING, os.time() + offset, cb
    end,
 
        -- this needs to be built out better 
-   delfailure = function(workername, queue, jobHash, errormessage, cb)
+   delfailure = function(workername, queue, jobHash, errormessage, offset, cb)
       local script = [[
       local workername = ARGV[1]
       local queue = ARGV[2]
@@ -153,7 +160,7 @@ local evals = {
       return redis.call('hdel', runningJobs, workername)
       ]]
 
-      return script, 4, common.RUNNING, common.FAILED, common.FAILED_ERROR, common.FAILEDTIME, workername, DELQUEUE .. queue, jobHash, errormessage, os.time(), cb
+      return script, 4, common.RUNNING, common.FAILED, common.FAILED_ERROR, common.FAILEDTIME, workername, DELQUEUE .. queue, jobHash, errormessage, os.time() + offset, cb
    end,
 
    delcleanup = function(queue, workername, jobHash, cb)
@@ -203,36 +210,48 @@ end
 
 function delqueue.subscribe(queue, jobs, cb)
 
-   queue.environment.redis.eval(evals.startup(queue.name))
+   queue.environment.redis.eval(evals.startup(queue.name, function(res) 
+      local redis_time = res
+      print("STARTUP", res)
 
-   for jobname, job in pairs(jobs) do
-      queue.jobs[jobname] = job  
-   end
+      queue.time_offset = redis_time - os.time()
 
-   queue.environment.subscriber.subscribe(DELCHANNEL .. queue.name, function(message)
-
-      local nexttimestamp = tonumber(message[3])
-      if nexttimestamp <= os.time() then
-         --shortcut to execution
-         queue.nexttimestamp = nil
-         queue.nextjobtimeout = nil
-         queue.dequeueAndRun()
-      else
-         setJobTimeout(queue, nexttimestamp)
-      end
-   end)
-
-   if queue.intervalSet ~= true then
-      async.setInterval(60 * 1000, function() 
-         if queue.nexttimestamp == nil or (queue.nexttimestamp and queue.nexttimestamp < os.time()) then
-            queue.dequeueAndRun() 
+      for jobname, job in pairs(jobs) do
+         if type(job) == 'table' then
+            if job.prepare then
+               wait(job.prepare, {})
+            end
+            queue.jobs[jobname] = job
+         else
+            queue.jobs[jobname] = {run = job}
          end
+      end
 
-         queue.intervalSet = true
+      queue.environment.subscriber.subscribe(DELCHANNEL .. queue.name, function(message)
+
+         local nexttimestamp = os.time() + tonumber(message[3])
+         if nexttimestamp <= os.time() then
+            --shortcut to execution
+            queue.nexttimestamp = nil
+            queue.nextjobtimeout = nil
+            queue.dequeueAndRun()
+         else
+            setJobTimeout(queue, nexttimestamp)
+         end
       end)
-   end
 
-   queue.donesubscribing(cb)
+      if queue.intervalSet ~= true then
+         async.setInterval(60 * 1000, function() 
+            if queue.nexttimestamp == nil or (queue.nexttimestamp and queue.nexttimestamp < os.time()) then
+               queue.dequeueAndRun() 
+            end
+
+            queue.intervalSet = true
+         end)
+      end
+
+      queue.donesubscribing(cb)
+   end))
 end
 
 function delqueue.enqueue(queue, jobName, argtable, cb)
@@ -249,14 +268,21 @@ function delqueue.enqueue(queue, jobName, argtable, cb)
       
    jobHash = job.hash
 
-   local timestamp = argtable.timestamp
+   local timeout
+   
+   if argtable.timestamp then
+      timeout = math.max(argtable.timestamp - os.time(), 0)
+   else
+      timeout = argtable.timeout or 0
+   end
 
-
-   timestamp = timestamp or os.time()
    cb = cb or function(res) return end
 
    local jobJson = json.encode(job)
-   queue.environment.redis.eval(evals.delenqueue(queue.name, jobJson, jobName, jobHash, timestamp, cb))
+   queue.environment.redis.time(function(res)
+      local redis_time = res[1]
+      queue.environment.redis.eval(evals.delenqueue(queue.name, jobJson, jobName, jobHash, timeout, redis_time, cb))
+   end)
 end
 
 function delqueue.reenqueue(queue, argtable, cb)
@@ -265,14 +291,14 @@ end
 
 function delqueue.dequeue(queue, cb)
 
-   queue.environment.redis.eval(evals.deldequeue(queue.name, queue.environment.workername, function(response) 
+   queue.environment.redis.eval(evals.deldequeue(queue.name, queue.environment.workername, queue.time_offset, function(response) 
 
-      local nexttimeout = response[2] and tonumber(response[2])
-      if nexttimeout and nexttimeout <= os.time() then
+      local nexttimeout = response[2] and tonumber(response[2]) or 0
+      if nexttimeout and nexttimeout <= 0 then
          -- no need to wait for a timeout
          queue.waiting = true
       else
-         setJobTimeout(queue, nexttimeout)
+         setJobTimeout(queue, os.time() + nexttimeout)
       end
 
       if response[1] == nil or response[1] == WAITSTRING then
@@ -286,7 +312,7 @@ end
 
 function delqueue.failure(queue, argtable)
    --print("FAILURE", queue.environment.workername, queue.name, argtable.jobHash, argtable.err)
-   queue.environment.redis.eval(evals.delfailure(queue.environment.workername, queue.name, argtable.jobHash, argtable.err, cb))
+   queue.environment.redis.eval(evals.delfailure(queue.environment.workername, queue.name, argtable.jobHash, argtable.err, queue.time_offset, cb))
 end
 
 function delqueue.cleanup(queue, argtable)
@@ -299,5 +325,48 @@ function delqueue.cleanup(queue, argtable)
       end
    end))
 end
+
+
+local jobAndMethod = function(res)
+   local name = res.name
+   local method = "run"
+   if name:find("FAILURE:") then
+      method = "failure"
+      local x,y,subname = name:find("FAILURE:(.*)")
+      name = subname
+   end
+   return name, method
+end
+
+function delqueue.doOverrides(queue)
+   queue.execute = function(res)
+      local name, method = jobAndMethod(res)
+      local job = queue.jobs[name]
+      if job == nil then
+         log.print("ERROR -- no job found for jobname: " .. name .. " method: " .. method)
+         log.print(res)
+      end
+      if job[method] then
+         job[method](res.args)
+      else
+         log.print("received job " .. name .. " method " .. method .. ":  No such method for job")
+      end
+   end
+
+   queue.failure = function(argtable, res)
+      delqueue.failure(queue, argtable)
+
+      local name, method = jobAndMethod(res)
+      local job = queue.jobs[name]
+
+      if method == "run" and job.failure then
+         delqueue.enqueue(queue, "FAILURE:" .. name, {jobHash = argtable.jobHash, jobArgs = res.args, priority = res.priority, timeout = 0})
+      end
+
+   end
+
+end
+
+
 
 return delqueue
