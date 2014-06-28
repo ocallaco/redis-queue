@@ -25,7 +25,7 @@ tester.generateJob = function(worker)
 
                tester.jobsSeen[args.testnumber] = true
                if args.testnumber == 45 then
-                  os.exit()
+                  --os.exit()
                end
 
                table.insert(tester.jobsSeenBy[i], args.testnumber)
