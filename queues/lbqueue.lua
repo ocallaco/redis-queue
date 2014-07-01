@@ -303,7 +303,9 @@ function lbqueue.enqueue(queue, jobName, argtable, cb)
 
    -- job.hash must be a string for dequeue logic
    if jobHash then
-      job.hash = jobName .. jobHash
+      if not argtable.rawJobHash then
+         job.hash = jobName .. jobHash
+      end
    else
       error("a hash value is require for load balance queue")
    end
@@ -374,7 +376,7 @@ function lbqueue.doOverrides(queue)
       local job = queue.jobs[name]
 
       if method == "run" and job.failure then
-         lbqueue.enqueue(queue, "FAILURE:" .. name, {jobHash = argtable.jobHash, jobArgs = res.args, priority = res.priority})
+         lbqueue.enqueue(queue, "FAILURE:" .. name, {rawJobHash = true, jobHash = argtable.jobHash, jobArgs = res.args, priority = res.priority})
       end
 
    end

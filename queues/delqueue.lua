@@ -256,12 +256,17 @@ end
 
 function delqueue.enqueue(queue, jobName, argtable, cb)
 
-   local job = { queue = DELQUEUE .. queue.name, name = jobName, args = argtable.jobArgs}
+   local job = { queue = DELQUEUE .. queue.name, name = jobName, args = argtable.jobArgs, interval = argtable.interval}
 
    local jobHash = argtable.jobHash
    -- job.hash must be a string for dequeue logic
    if jobHash then
-      job.hash = jobName .. jobHash
+      -- if from a re-enqueue, the jobhash doesnt need to be concatenated
+      if argtable.rawJobHash then
+         job.hash = jobHash
+      else
+         job.hash = jobName .. jobHash
+      end
    else
       error("a hash value is require for delayed queue")
    end
@@ -279,10 +284,17 @@ function delqueue.enqueue(queue, jobName, argtable, cb)
    cb = cb or function(res) return end
 
    local jobJson = json.encode(job)
-   queue.environment.redis.time(function(res)
-      local redis_time = res[1]
-      queue.environment.redis.eval(evals.delenqueue(queue.name, jobJson, jobName, jobHash, timeout, redis_time, cb))
-   end)
+
+   -- if we already know the redis time's offset
+   if queue.time_offset then
+      queue.environment.redis.eval(evals.delenqueue(queue.name, jobJson, jobName, jobHash, timeout, os.time() + queue.time_offset, cb))
+   else
+      queue.environment.redis.time(function(res)
+         local redis_time = res[1]
+         queue.time_offset = redis_time - os.time()
+         queue.environment.redis.eval(evals.delenqueue(queue.name, jobJson, jobName, jobHash, timeout, redis_time, cb))
+      end)
+   end
 end
 
 function delqueue.reenqueue(queue, argtable, cb)
@@ -346,21 +358,38 @@ function delqueue.doOverrides(queue)
          log.print("ERROR -- no job found for jobname: " .. name .. " method: " .. method)
          log.print(res)
       end
+
+      -- if we see a failure method and the job had an interval, then we need to re-enqueue
+      if method == "failure" and res.interval then
+         queue.enqueue(name, {jobArgs = res.args, timeout = res.interval, interval = res.interval, jobHash = res.hash, rawJobHash = true})
+      end
+
       if job[method] then
          job[method](res.args)
       else
          log.print("received job " .. name .. " method " .. method .. ":  No such method for job")
       end
+
+      -- we want it reenqueued after running if it's an interval job to ensure that we don't overlap long running jobs
+      if res.interval and method == "run" then
+         queue.enqueue(name, {jobArgs = res.args, timeout = res.interval, interval = res.interval, jobHash = res.hash, rawJobHash = true})
+      end
    end
 
+   -- TODO: clean up uses of argtable and args -- not always referring to the same thing as they are elsewhere, very confusing
    queue.failure = function(argtable, res)
       delqueue.failure(queue, argtable)
 
       local name, method = jobAndMethod(res)
       local job = queue.jobs[name]
 
-      if method == "run" and job.failure then
-         delqueue.enqueue(queue, "FAILURE:" .. name, {jobHash = argtable.jobHash, jobArgs = res.args, priority = res.priority, timeout = 0})
+      if method == "run" then
+         if res.interval then
+            delqueue.enqueue(queue, name, {interval = res.interval, rawJobHash = true, jobHash = argtable.jobHash, jobArgs = res.args, priority = res.priority, timeout = 0})
+         end
+         if job.failure then
+            delqueue.enqueue(queue, "FAILURE:" .. name, {rawJobHash = true, jobHash = argtable.jobHash, jobArgs = res.args, priority = res.priority, timeout = 0})
+         end
       end
 
    end

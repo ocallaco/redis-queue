@@ -227,7 +227,7 @@ local mainPage = function(req, res)
       local x,y,jobhash = jobJson:find('("hash":".-")')
       local x,y,jobname = jobJson:find('("name":".-")')
 
-      runningworkers[workername] = jobqueue .. ", " .. jobname .. ", " .. jobhash
+      runningworkers[workername] = jobqueue .. ", " .. jobname .. ", " .. (jobhash or "nohash")
       if not allworkers[workername] then
          table.insert(workerlist, workername)
       end

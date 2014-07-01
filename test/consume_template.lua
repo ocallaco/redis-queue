@@ -1,6 +1,8 @@
 local q = require 'redis-queue.init'
 local rc = require 'redis-async'
 
+--rc.setdebug()
+
 local async = require 'async'
 local fiber = require 'async.fiber'
 

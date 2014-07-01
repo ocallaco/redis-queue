@@ -1,6 +1,8 @@
 local tester = require './consume_template'
 
-tester.eval_timeout = 30000
+
+tester.eval_timeout = 0
+tester.nWorkers = 10 
 
 tester.prepareEnvironment = function()
    tester.jobsSeenBy = {}

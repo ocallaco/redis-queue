@@ -17,8 +17,8 @@ fiber(function()
 
          print("test start")
 
-         queue:enqueueJob("INSTAGRAM", "testJob", {a = 1, b = "test", testnumber = 1, time = os.time() +  1 }, {interval = 2, jobHash = 1, timestamp = os.time() +  1}, function(res) print(res) end)
-         queue:enqueueJob("INSTAGRAM", "testJob", {a = 1, b = "test", testnumber = 2, time = os.time() +  1 }, {interval = 5, jobHash = 2, timestamp = os.time() + 1 }, function(res) print(res) end)
+--         queue:enqueueJob("INSTAGRAM", "testJob", {a = 1, b = "test", testnumber = 1, time = os.time() +  1 }, {interval = 2, jobHash = 1, timestamp = os.time() +  1}, function(res) print(res) end)
+         queue:enqueueJob("INSTAGRAM", "testJob", {a = 1, b = "test", testnumber = 2, time = os.time() +  1 }, {interval = 2, jobHash = 2, timestamp = os.time() + 1 }, function(res) print(res) end)
       end)
       
       async.setTimeout(8000, function()
