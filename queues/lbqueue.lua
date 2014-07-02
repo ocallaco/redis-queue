@@ -304,7 +304,9 @@ function lbqueue.enqueue(queue, jobName, argtable, cb)
 
    -- job.hash must be a string for dequeue logic
    if jobHash then
-      if not argtable.rawJobHash then
+      if argtable.rawJobHash then
+         job.hash = jobHash
+      else
          job.hash = jobName .. jobHash
       end
    else
