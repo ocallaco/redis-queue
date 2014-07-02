@@ -67,7 +67,7 @@ local evals = {
          if isbusy then
             redis.call('sadd', waiting, jobJson)
             redis.call('publish', chann, jobName)
-            return
+            return jobExists
          end
       end
 
@@ -78,6 +78,7 @@ local evals = {
       end
 
       redis.call('publish', chann, jobName)
+      return jobExists
       ]] 
       return  script, 5, LBQUEUE .. queue, LBCHANNEL .. queue, LBJOBS .. queue, LBBUSY .. queue, LBWAITING .. queue, jobJson, jobName, jobHash, priority, cb
 
@@ -365,7 +366,9 @@ function lbqueue.doOverrides(queue)
       if job[method] then
          job[method](res.args)
       else
-         log.print("received job " .. name .. " method " .. method .. ":  No such method for job")
+         if log then
+            log.print("received job " .. name .. " method " .. method .. ":  No such method for job")
+         end
       end
    end
 
