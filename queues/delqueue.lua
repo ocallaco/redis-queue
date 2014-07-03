@@ -355,8 +355,13 @@ function delqueue.doOverrides(queue)
       local name, method = jobAndMethod(res)
       local job = queue.jobs[name]
       if job == nil then
-         log.print("ERROR -- no job found for jobname: " .. name .. " method: " .. method)
-         log.print(res)
+         if log then
+            log.print("ERROR -- no job found for jobname: " .. name .. " method: " .. method)
+            log.print(res)
+         else
+            print("ERROR -- no job found for jobname: " .. name .. " method: " .. method)
+            print(res)
+         end
       end
 
       -- if we see a failure method and the job had an interval, then we need to re-enqueue
@@ -367,7 +372,12 @@ function delqueue.doOverrides(queue)
       if job[method] then
          job[method](res.args)
       else
-         log.print("received job " .. name .. " method " .. method .. ":  No such method for job")
+         if log then
+            log.print("received job " .. name .. " method " .. method .. ":  No such method for job")
+         else
+            print("received job " .. name .. " method " .. method .. ":  No such method for job")
+         end
+
       end
 
       -- we want it reenqueued after running if it's an interval job to ensure that we don't overlap long running jobs
